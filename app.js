@@ -45,10 +45,9 @@ function mountImagePreview(area,url){
  document.getElementById('imageModal')?.remove();
  const previousFocus=document.activeElement;
  const modal=document.createElement('div');modal.id='imageModal';modal.className='image-modal';
- const viewer=document.createElement('section');viewer.className='image-viewer';viewer.setAttribute('role','dialog');viewer.setAttribute('aria-modal','true');
+ const viewer=document.createElement('section');viewer.className='image-viewer';viewer.setAttribute('role','region');
  const close=()=>{modal.remove();previousFocus?.focus();};
- modal.onclick=e=>{if(e.target===modal)close();};
- modal.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close();}if(e.key==='Tab'){const nodes=[...viewer.querySelectorAll('button,input,[tabindex="0"]')],first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+ modal.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close();}});
  viewer.setAttribute('aria-label','Originale DDT ingrandibile');
  const tools=document.createElement('div');tools.className='image-tools';
  const viewport=document.createElement('div');viewport.className='image-viewport';viewport.tabIndex=0;viewport.setAttribute('aria-label','Documento: usa lo scorrimento per leggere le parti ingrandite');
@@ -61,7 +60,12 @@ function mountImagePreview(area,url){
  button('Adatta','Adatta il documento alla larghezza',()=>{update(100);viewport.scrollTop=0;viewport.scrollLeft=0;});
  button('Schermo intero','Apri anteprima a schermo intero',async()=>{try{if(document.fullscreenElement===viewer)await document.exitFullscreen();else await viewer.requestFullscreen();}catch{toast('Schermo intero non disponibile. Usa lo zoom oppure Apri documento.');}});
  const closeButton=button('Chiudi ×','Chiudi immagine e torna ai dati',close);
- viewport.append(img);viewer.append(tools,viewport);modal.append(viewer);document.body.append(modal);
+ const handle=document.createElement('div');handle.className='image-drag-handle';handle.textContent='⠿ Originale DDT · trascina qui per spostare la finestra';
+ let windowDrag=null;
+ handle.onpointerdown=e=>{if(e.button!==0||document.fullscreenElement===viewer)return;e.preventDefault();const rect=viewer.getBoundingClientRect();windowDrag={x:e.clientX,y:e.clientY,left:rect.left,top:rect.top};handle.setPointerCapture(e.pointerId);};
+ handle.onpointermove=e=>{if(!windowDrag)return;const rect=viewer.getBoundingClientRect();const left=Math.max(0,Math.min(window.innerWidth-rect.width,windowDrag.left+e.clientX-windowDrag.x));const top=Math.max(0,Math.min(window.innerHeight-rect.height,windowDrag.top+e.clientY-windowDrag.y));viewer.style.left=left+'px';viewer.style.top=top+'px';};
+ const stopWindowDrag=()=>{windowDrag=null;};handle.onpointerup=stopWindowDrag;handle.onpointercancel=stopWindowDrag;handle.onlostpointercapture=stopWindowDrag;
+ viewport.append(img);viewer.append(handle,tools,viewport);modal.append(viewer);document.body.append(modal);
  const reopen=document.createElement('button');reopen.type='button';reopen.className='btn';reopen.textContent='Apri immagine con zoom';reopen.onclick=()=>mountImagePreview(area,url);area.querySelector('[data-reopen-image]')?.remove();reopen.dataset.reopenImage='1';area.append(reopen);closeButton.focus();
  range.oninput=()=>update(Number(range.value));
  viewport.onkeydown=e=>{if(e.key==='+'||e.key==='='){e.preventDefault();update(zoom+25);}else if(e.key==='-'){e.preventDefault();update(zoom-25);}};
