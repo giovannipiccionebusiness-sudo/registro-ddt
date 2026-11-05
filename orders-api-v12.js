@@ -32,7 +32,7 @@ async function orderDestination(o){const root=OrdersState.config['Cartella ordin
 async function saveOrderDetails(o,changes){
  return withOrdersLock(async()=>{
  await checkOrderSnapshot(o);
- const next={...o};for(const key of ['number','company','site','cdc','date','due','manual','notes'])next[key]=String(changes[key]??o[key]??'').trim();
+ const next={...o};for(const key of ['number','company','site','cdc','date','due','manual','notes','address'])next[key]=String(changes[key]??o[key]??'').trim();
  const ref=OrdersCore.orderRef(next.number);if(!ref?.full)throw Error('Inserisci il numero ordine completo, con anno.');next.number=ref.full;
  if(!next.company||!next.site||!/^N\d{3}$/.test(next.cdc)||!OrdersCore.dateISO(next.date))throw Error('Completa fornitore, sede, CDC e data valida.');
  if(next.due&&!OrdersCore.dateISO(next.due))throw Error('Data consegna non valida.');
