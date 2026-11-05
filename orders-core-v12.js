@@ -17,6 +17,7 @@ var OrdersCore=(()=>{
  const found=candidates(ddt,orders);return {order:found.length===1?found[0]:null,candidates:found,warning:found.length>1?'Più ordini compatibili: scegli il collegamento':'Nessun ordine compatibile'};}
  function dateISO(value){const m=String(value||'').match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);if(!m)return '';const y=+m[3],mo=+m[2],d=+m[1],date=new Date(Date.UTC(y,mo-1,d));return date.getUTCFullYear()===y&&date.getUTCMonth()===mo-1&&date.getUTCDate()===d?String(y)+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'):'';}
  function status(o,related,today){if(o.manual==='ANNULLATO')return 'Annullato';if(o.manual==='PARZIALE')return 'Parzialmente ricevuto';if(related.length)return 'Consegnato';if(o.manual==='DDT_DA_RICHIEDERE'||o.manual==='COMPLETATO')return 'Merce ricevuta, DDT da richiedere';return 'Da consegnare / DDT mancante';}
+ function deliveryAddress(value){const t=String(value||'').replace(/\s+/g,' ').trim();const road=t.match(/\b(?:VIALE|VIA|CONTRADA|CONTR\.?|CORSO|PIAZZA|P\.?ZZA|LARGO|VICO|STRADA)\s+[^]*?(?=\s+(?:Riferimento\s*:|Orari\s*:|Telefono\s*:|Giovanni Piccione|Dario Manzari|IL PRESENTE ORDINE)|$)/i)?.[0]||'';return road.replace(/\s+(?:LE|BR|TA)\s+IT\b.*$/i,'').replace(/\s+IT\b.*$/i,'').trim();}
  function parsePDF(text,subject,sites){
  const t=String(text||'').replace(/\u00a0/g,' '),warnings=[];
  const numberMatch=t.match(/Ordine\s+Numero\s*:\s*(A\s*[/ ]?\s*20\d{2}\s*[/ ]?\s*\d{6})/i);
@@ -36,9 +37,9 @@ var OrdersCore=(()=>{
  const date=t.match(/Ordine\s+Numero[\s\S]{0,100}?\bDel\s*:\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i)?.[1]?.replace(/[.-]/g,'/')||'';
  const due=t.match(/Data\s+Consegna\s*:\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i)?.[1]?.replace(/[.-]/g,'/')||'';
  if(!dateISO(date))warnings.push('Data ordine da verificare');
- return {number:ref?.full||'',company:supplier,site,cdc,date,due,address:(block||deliveryArea).replace(/\s+/g,' ').trim(),warnings:warnings.join('; ')};
+ return {number:ref?.full||'',company:supplier,site,cdc,date,due,address:deliveryAddress(deliveryArea||block),warnings:warnings.join('; ')};
  }
  const filePart=s=>String(s||'').trim().replace(/[\\/:*?"<>|\x00-\x1f]/g,'-').replace(/\s+/g,' ').slice(0,140);
  function filename(o,hash){return filePart(o.site||'SEDE DA VERIFICARE')+'_'+filePart(o.number||('ORDINE DA VERIFICARE_'+hash.slice(0,10)))+'.pdf';}
- return {norm,orderRef,company,ddtKey,candidates,match,dateISO,status,parsePDF,filename};
+ return {norm,orderRef,company,ddtKey,candidates,match,dateISO,status,parsePDF,filename,deliveryAddress};
 })();
