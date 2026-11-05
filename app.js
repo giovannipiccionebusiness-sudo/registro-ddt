@@ -6,9 +6,9 @@
  if(!record||folderBatchBusy)return;
  const matches=duplicates(record);
  if(!matches.length)return toast('Aggiorna il registro per verificare i duplicati.');
- if(!window.confirm('Eliminare dal foglio Google la riga '+row+'?\n\n'+record.company+' · DDT '+record.ddt+'\nNome: '+record.name+'\nProtocollo: '+(record.protocol||'assente')+'\nPossibili duplicati alle righe: '+matches.map(x=>x.row).join(', ')+'\n\nControlla quale copia conservare. I file originali e i PDF su Drive non saranno eliminati.'))return;
+ if(!window.confirm('Eliminare dal foglio Google la riga '+row+'?\n\n'+record.company+' · DDT '+record.ddt+'\nNome: '+record.name+'\nProtocollo: '+(record.protocol||'assente')+'\nPossibili duplicati alle righe: '+matches.map(x=>x.row).join(', ')+'\n\nControlla quale copia conservare. La foto originale sarà spostata nel Cestino Drive, salvo che sia usata da un’altra riga. Gli eventuali PDF protocollati saranno conservati.'))return;
  remove.disabled=true;toggleBatchBusy(true);
- try{await deleteDuplicateDDTRow(record);closeDetail();await refresh();toast('Riga eliminata dal foglio Google. File Drive conservati.');}
+ try{const result=await deleteDuplicateDDTRow(record);closeDetail();await refresh();toast(result.shared?'Riga eliminata. Originale conservato perché usato da un’altra riga.':'Riga eliminata e originale spostato nel Cestino Drive.');}
  catch(error){toast(error.message+' Aggiorna il registro prima di riprovare.');await refresh();}
  finally{toggleBatchBusy(false);remove.disabled=false;}
  return;
