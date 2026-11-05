@@ -69,16 +69,35 @@ function duplicateDDTRows(record,rows){
  norm(record.company)===norm(other.company)&&number(record.ddt)===number(other.ddt)&&
  norm(record.date)===norm(other.date)&&norm(record.cdc)===norm(other.cdc))));
 }
+
 async function deleteDuplicateDDTRow(record){
  const work=async()=>{
  const current=await listDDT();
  await checkSnapshot(record);
  if(!duplicateDDTRows(record,current.rows).length)throw Error('La riga non risulta più duplicata. Aggiorna il registro.');
  const metadata=await sheetMetadata();
+ const normalName=v=>String(v||'').replace(/^✅\s*/,'').trim().toLowerCase();
+ const shared=current.rows.some(r=>r.row!==record.row&&normalName(r.name)===normalName(record.name));
+ let original=null,trashed=false;
+ if(!shared){
+ original=await originalDDT(record);
+ await checkSnapshot(record);
+ await googleRequest(driveURL+'/'+encodeURIComponent(original.id),jsonOptions('PATCH',{trashed:true}));
+ trashed=true;
+ }
+ try{
  await checkSnapshot(record);
  await googleRequest(sheetURL+DDTConfig.sheetId+':batchUpdate',jsonOptions('POST',{
  requests:[{deleteDimension:{range:{sheetId:metadata.sheetId,dimension:'ROWS',startIndex:record.row-1,endIndex:record.row}}}]
  }));
+ }catch(error){
+ if(trashed){
+ try{await googleRequest(driveURL+'/'+encodeURIComponent(original.id),jsonOptions('PATCH',{trashed:false}));}
+ catch{throw Error('Eliminazione non confermata. Verifica il foglio e il Cestino Drive: '+record.name);}
+ }
+ throw error;
+ }
+ return{shared,trashed};
  };
  return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},lock=>{
  if(!lock)throw Error('Un’altra operazione è in corso.');return work();
