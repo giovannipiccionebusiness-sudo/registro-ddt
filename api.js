@@ -38,3 +38,23 @@ const fresh=await listDDT();if(fresh.rows.some(r=>r.name===f.name||r.name===name
 }catch(e){summary.errors.push({name:f.name,error:e.message});if(!hasSession()){summary.stopped=true;break;}}}return summary;};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso in questo browser.');return work();}):work();}
 async function saveDDTProtocolOnly(r,value){const p=String(value).trim();if(!/^\d{6,20}$/.test(p))throw Error('Inserisci il protocollo numerico da 6 a 20 cifre.');const work=async()=>{await checkSnapshot(r);if(r.status.toUpperCase()==='PROTOCOLLATO'||r.url)throw Error('Documento già protocollato.');const all=await listDDT();if(all.rows.some(x=>x.row!==r.row&&x.protocol===p))throw Error('Protocollo già assegnato a un altro DDT.');await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('G'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[p]]}));};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();}
 async function protocolAllDDT(progress=()=>{},shouldStop=()=>false){const list=await listDDT(),pending=list.rows.filter(r=>r.name&&r.protocol&&r.status.toUpperCase()!=='PROTOCOLLATO');const report={done:0,errors:[],total:pending.length,stopped:false};for(let i=0;i<pending.length;i++){if(shouldStop()){report.stopped=true;break;}const r=pending[i];progress({current:i+1,total:pending.length,name:r.name});try{const out=await protocolDDT(r,r.protocol);report.done++;if(out.warning)report.errors.push({name:r.name,error:out.warning});}catch(e){report.errors.push({name:r.name,error:e.message});if(!hasSession()){report.stopped=true;break;}}}return report;}
+
+
+
+async function saveDDTDetails(r,changes){
+ const work=async()=>{
+  await checkSnapshot(r);
+  if(r.status.toUpperCase()==='PROTOCOLLATO'||r.url)throw Error('Documento già protocollato: i dati sono bloccati per mantenere coerente il PDF.');
+  const next={...r};for(const k of ['name','company','ddt','date','cdc','order'])next[k]=String(changes[k]??'').trim();
+  if(!next.name||/[\\/:*?"<>|\x00-\x1f]/.test(next.name)||next.name.startsWith('✅'))throw Error('Nome file non valido. Mantieni anche l’estensione originale.');
+  const ext=r.name.match(/\.[^/.]+$/)?.[0]||'';
+  if(ext&&next.name.slice(-ext.length).toLowerCase()!==ext.toLowerCase())throw Error('Mantieni l’estensione originale '+ext+'.');
+  if(next.cdc&&!/^N\d{3}$/.test(next.cdc))throw Error('Centro di costo non valido: usa il formato N153.');
+  if(next.date){const m=next.date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!m)throw Error('Data richiesta nel formato gg/mm/aaaa.');const d=new Date(+m[3],+m[2]-1,+m[1]);if(d.getFullYear()!==+m[3]||d.getMonth()!==+m[2]-1||d.getDate()!==+m[1])throw Error('Data documento non valida.');}
+  const renamed=next.name!==r.name;let f;
+  if(renamed){const all=await listDDT();if(all.rows.some(x=>x.row!==r.row&&x.name.toLowerCase()===next.name.toLowerCase()))throw Error('Nome già usato nel registro.');f=await originalDDT(r);if((await listFiles(DDTConfig.originals,next.name)).some(x=>x.id!==f.id))throw Error('Esiste già un altro file con questo nome nella cartella.');await checkSnapshot(r);await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name:next.name}));}
+  try{await checkSnapshot(r);await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A'+r.row+':F'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[next.name,next.company,next.ddt,next.date,next.cdc,next.order]]}));}
+  catch(e){if(renamed){try{await checkSnapshot(r);await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name:f.name}));}catch{throw Error('Salvataggio non confermato. Verifica la riga '+r.row+' e il file su Drive prima di riprovare. Nome richiesto: '+next.name);}}throw e;}
+  return next;
+ };return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();
+}
