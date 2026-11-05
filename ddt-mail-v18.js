@@ -27,7 +27,7 @@ var DDTMail = (() => {
  function draft(orders) {
   const received=orders.every(o=>['DDT_DA_RICHIEDERE','COMPLETATO'].includes(o.manual));
   const lines=orders.map(o=>'• Ordine n. '+(o.number||'[numero da verificare]')+'\r\n  Sede: '+(o.site||'[sede da verificare]')+'\r\n  Indirizzo: '+(o.address||'[indirizzo da verificare]'));
-  return {subject:orders.length===1?'Richiesta DDT – Ordine n. '+(orders[0].number||'da verificare'):'Richiesta DDT – '+orders.length+' ordini',body:'Buongiorno,\r\n\r\nchiediamo cortesemente copia dei DDT relativi ai seguenti ordini:\r\n\r\n'+lines.join('\r\n\r\n')+'\r\n\r\n'+(received?'La merce risulta ricevuta, ma non disponiamo dei relativi documenti di trasporto.':'Non disponiamo dei relativi documenti di trasporto. Per eventuali ordini non ancora evasi, chiediamo un aggiornamento sullo stato della fornitura.')+'\r\n\r\nGrazie per la collaborazione.\r\nCordiali saluti,\r\nGiovanni Piccione'};
+  return {subject:orders.length===1?'Richiesta DDT – Ordine n. '+(orders[0].number||'da verificare'):'Richiesta DDT – '+orders.length+' ordini',body:'Buongiorno,\r\n\r\nchiediamo cortesemente copia dei DDT relativi ai seguenti ordini:\r\n\r\n'+lines.join('\r\n\r\n')+'\r\n\r\n'+(received?'La merce risulta ricevuta, ma non disponiamo dei relativi documenti di trasporto.':'Non disponiamo dei relativi documenti di trasporto.')+'\r\n\r\nGrazie per la collaborazione.\r\nCordiali saluti,'};
  }
  function mailto(to,subject,body) {
   if(/[\r\n]/.test(subject))throw Error('L’oggetto deve essere su una sola riga.');
