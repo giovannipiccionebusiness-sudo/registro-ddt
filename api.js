@@ -70,11 +70,11 @@ function duplicateDDTRows(record,rows){
  norm(record.date)===norm(other.date)&&norm(record.cdc)===norm(other.cdc))));
 }
 
-async function deleteDuplicateDDTRow(record){
+async function deletePendingDDTRow(record){
  const work=async()=>{
  const current=await listDDT();
  await checkSnapshot(record);
- if(!duplicateDDTRows(record,current.rows).length)throw Error('La riga non risulta più duplicata. Aggiorna il registro.');
+ if(String(record.status||'').trim().toUpperCase()==='PROTOCOLLATO'||record.url)throw Error('I documenti già protocollati non possono essere eliminati.');
  const metadata=await sheetMetadata();
  const normalName=v=>String(v||'').replace(/^✅\s*/,'').trim().toLowerCase();
  const shared=current.rows.some(r=>r.row!==record.row&&normalName(r.name)===normalName(record.name));
