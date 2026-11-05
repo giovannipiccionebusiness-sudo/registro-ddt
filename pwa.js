@@ -12,8 +12,9 @@
  window.addEventListener('online',sync);window.addEventListener('offline',sync);sync();
  const available=()=>{update.hidden=false;bar.hidden=false;};
  update.onclick=()=>{
- if(typeof folderBatchBusy!=='undefined'&&folderBatchBusy)return toast('Completa l’operazione in corso prima di aggiornare.');
+ if((typeof folderBatchBusy!=='undefined'&&folderBatchBusy)||(typeof OrdersState!=='undefined'&&OrdersState.busy))return toast('Completa l’operazione in corso prima di aggiornare.');
  if(typeof detailDirty==='function'&&detailDirty()&&!window.confirm('Hai modifiche non salvate. Aggiornare e scartarle?'))return;
+ if(typeof window.orderFormDirty==='function'&&window.orderFormDirty()&&!window.confirm('Hai modifiche all’ordine non salvate. Aggiornare e scartarle?'))return;
  if(registration?.waiting){reloadForUpdate=true;registration.waiting.postMessage('ACTIVATE_UPDATE');}else location.reload();
  };
  if('serviceWorker' in navigator&&location.protocol==='https:'){
