@@ -1,5 +1,5 @@
 /* Cache only the public app shell. Google data, PDFs and access tokens are never cached. */
-const CACHE='registro-ddt-shell-v10';
+const CACHE='registro-ddt-shell-v11';
 const ASSETS=['./','./index.html','./app-v10.js','./api-v10.js','./mobile.css','./pwa.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png','./icons/apple-touch-icon.png','./icons/favicon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const name of await caches.keys())if(name.startsWith('registro-ddt-shell-')&&name!==CACHE)await caches.delete(name);await self.clients.claim();})()));
