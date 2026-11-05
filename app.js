@@ -19,7 +19,16 @@
 let previewURL='';function releasePreview(){document.body.classList.remove('image-docked');document.getElementById('imageModal')?.remove();if(previewURL)URL.revokeObjectURL(previewURL);previewURL='';}
 async function showBytes(id,mime){const area=document.getElementById('bytePreview');if(!area)return;area.textContent='Caricamento documento…';try{const bytes=await downloadDrive(id);if(!document.getElementById('bytePreview'))return;releasePreview();previewURL=URL.createObjectURL(new Blob([bytes],{type:mime}));area.innerHTML='';const a=document.createElement('a');a.className='btn';a.href=previewURL;a.target='_blank';a.rel='noopener';a.textContent='Apri documento ↗';area.append(a);if(mime==='application/pdf'){const frame=document.createElement('iframe');frame.className='preview';frame.title='Anteprima documento';frame.src=previewURL;area.append(frame)}else{mountImagePreview(area,previewURL)}}catch(e){area.textContent=e.message}}
 async function showOriginal(r){try{if(!hasSession())throw Error('Accedi con Google per aprire il documento originale.');const f=await originalDDT(r);await showBytes(f.id,f.mimeType)}catch(e){toast(e.message)}}
-$('login').onclick=async()=>{try{await signInGoogle();$('login').textContent='Esci';$('login').onclick=()=>{forgetGoogle();releasePreview();data=[];apply([]);$('uploadDDT').disabled=true;location.reload()};await refresh()}catch(e){toast(e.message);nav('help')}};
+function syncGoogleLogin(){
+ $('login').textContent=hasSession()?'Esci da Google':'Accedi con Google';
+ $('login').onclick=async()=>{
+  if(hasSession()){forgetGoogle();releasePreview();location.reload();return;}
+  try{await signInGoogle();syncGoogleLogin();await refresh();}
+  catch(e){toast(e.message);if(!oauthClientId())nav('help');}
+ };
+}
+syncGoogleLogin();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncGoogleLogin();});
 $('sheetId').value=DDTConfig.sheetId;$('originalFolder').value=DDTConfig.originals;$('stampedFolder').value=DDTConfig.stamped;$('openSheet').onclick=()=>{if(!DDTConfig.sheetId)return nav('help');window.open('https://docs.google.com/spreadsheets/d/'+encodeURIComponent(DDTConfig.sheetId)+'/edit','_blank','noopener')};$('clientId').value=oauthClientId();$('saveConfig').onclick=()=>{const v=$('clientId').value.trim();if(!/^\d+-[\w-]+\.apps\.googleusercontent\.com$/.test(v))return toast('Inserisci il Client ID OAuth Google completo.');const values={clientId:v,sheetId:$('sheetId').value.trim(),originals:$('originalFolder').value.trim(),stamped:$('stampedFolder').value.trim(),tab:'Foglio1'};if(![values.sheetId,values.originals,values.stamped].every(x=>/^[a-zA-Z0-9_-]{10,}$/.test(x)))return toast('Inserisci gli ID del foglio e delle due cartelle.');Object.assign(DDTConfig,values);localStorage.setItem('ddt-google-config',JSON.stringify(values));localStorage.setItem('ddt-oauth-client-id',v);toast('Configurazione salvata in questo browser. Premi Accedi con Google.');nav('all')};
 $('uploadDDT').onclick=()=>$('uploadFile').click();$('uploadFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;const b=$('uploadDDT');b.disabled=true;b.textContent='Lettura OCR…';try{const out=await saveUploadedDDT(f);await refresh();toast(out.warning||'Documento caricato. Controlla i dati OCR prima di protocollare.')}catch(e){toast(e.message)}finally{b.disabled=!hasSession();b.textContent='＋ Carica DDT';e.target.value=''}};
 
