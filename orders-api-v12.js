@@ -36,7 +36,7 @@ async function saveOrderDetails(o,changes){
  const ref=OrdersCore.orderRef(next.number);if(!ref?.full)throw Error('Inserisci il numero ordine completo, con anno.');next.number=ref.full;
  if(!next.company||!next.site||!/^N\d{3}$/.test(next.cdc)||!OrdersCore.dateISO(next.date))throw Error('Completa fornitore, sede, CDC e data valida.');
  if(next.due&&!OrdersCore.dateISO(next.due))throw Error('Data consegna non valida.');
- if(!['APERTO','PARZIALE','COMPLETATO','ANNULLATO'].includes(next.manual))throw Error('Stato non valido.');
+ if(!['APERTO','PARZIALE','COMPLETATO','DDT_DA_RICHIEDERE','ANNULLATO'].includes(next.manual))throw Error('Stato non valido.');
  if(changes.verified)next.warnings='';
  next.updated=new Date().toISOString();
  const renamed=['number','company','site','date'].some(key=>next[key]!==o[key]);
