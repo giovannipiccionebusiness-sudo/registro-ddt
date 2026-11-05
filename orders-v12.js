@@ -164,7 +164,11 @@
  const changed=['number','company','site','date'].some(key=>values[key].trim()!==selectedOrder[key]);
  if(changed&&!window.confirm('Confermi la correzione e la nuova archiviazione del PDF per sede, anno, mese e fornitore?'))return;
  $('saveOrder').disabled=true;try{await saveOrderDetails(selectedOrder,values);const id=selectedOrder.id;await load();openOrder(id);toast('Ordine aggiornato nel registro e su Drive.');}catch(error){toast(error.message);}finally{$('saveOrder').disabled=false;}};
- $('openOrderPDF').onclick=async()=>{if(!selectedOrder?.fileId)return;if(useExternalPDF()){releasePDF();mobilePDFLinks($('orderPDF'),selectedOrder.fileId);return;}const button=$('openOrderPDF');button.disabled=true;const id=selectedOrder.id;try{const bytes=await downloadDrive(selectedOrder.fileId);if(!dialog.open||selectedOrder.id!==id)return;releasePDF();pdfURL=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));const link=document.createElement('a');link.href='https://drive.google.com/file/d/'+encodeURIComponent(selectedOrder.fileId)+'/view';link.target='_blank';link.rel='noopener';link.className='btn';link.textContent='Apri PDF su Google Drive ↗';const iframe=document.createElement('iframe');iframe.className='preview';iframe.title='PDF ordine';iframe.src=pdfURL;$('orderPDF').replaceChildren(link,iframe);}catch(error){toast(error.message);}finally{button.disabled=false;}};
+ $('openOrderPDF').onclick=()=>{
+ if(!selectedOrder?.fileId)return;
+ const order=selectedOrder;
+ DDTPDFViewer.open({load:()=>downloadDrive(order.fileId),filename:'Ordine-'+(order.number||'documento')+'.pdf',title:'Ordine '+(order.number||'')});
+};
  $('linkOrderDDT').onclick=async()=>{const r=data.find(x=>x.row===Number($('orderDDTSelect').value));if(!r||!selectedOrder)return toast('Seleziona il DDT da collegare.');
  if(!window.confirm('Collegare il DDT '+r.ddt+' ('+r.company+') all’ordine '+selectedOrder.number+'? L’eventuale collegamento precedente verrà sostituito.'))return;
  $('linkOrderDDT').disabled=true;try{await linkDDTToOrder(r,selectedOrder);const id=selectedOrder.id;await load();openOrder(id);toast('DDT collegato all’ordine.');}catch(error){toast(error.message);}finally{$('linkOrderDDT').disabled=false;}};
