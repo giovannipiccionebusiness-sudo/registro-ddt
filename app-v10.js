@@ -17,7 +17,27 @@
 
 
 let previewURL='';function releasePreview(){document.body.classList.remove('image-docked');document.getElementById('imageModal')?.remove();if(previewURL)URL.revokeObjectURL(previewURL);previewURL='';}
-async function showBytes(id,mime){const area=document.getElementById('bytePreview');if(!area)return;area.textContent='Caricamento documento…';try{const bytes=await downloadDrive(id);if(!document.getElementById('bytePreview'))return;releasePreview();previewURL=URL.createObjectURL(new Blob([bytes],{type:mime}));area.innerHTML='';const a=document.createElement('a');a.className='btn';a.href=previewURL;a.target='_blank';a.rel='noopener';a.textContent='Apri documento ↗';area.append(a);if(mime==='application/pdf'){const frame=document.createElement('iframe');frame.className='preview';frame.title='Anteprima documento';frame.src=previewURL;area.append(frame)}else{mountImagePreview(area,previewURL)}}catch(e){area.textContent=e.message}}
+function useExternalPDF(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||window.matchMedia('(max-width:720px)').matches;}
+function driveDocumentLink(id,label='Apri PDF su Google Drive ↗'){
+ const link=document.createElement('a');link.className='btn primary';link.href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';link.target='_blank';link.rel='noopener';link.textContent=label;return link;
+}
+function mobilePDFLinks(area,id){
+ const note=document.createElement('p');note.textContent='Apri il PDF su Google Drive con l’account usato per il registro.';
+ area.replaceChildren(driveDocumentLink(id),note);
+}
+async function showBytes(id,mime){
+ const area=document.getElementById('bytePreview');if(!area)return;
+ releasePreview();
+ if(mime==='application/pdf'&&useExternalPDF()){mobilePDFLinks(area,id);return;}
+ area.textContent='Caricamento documento…';
+ try{
+  const bytes=await downloadDrive(id);if(document.getElementById('bytePreview')!==area)return;
+  releasePreview();previewURL=URL.createObjectURL(new Blob([bytes],{type:mime}));area.innerHTML='';
+  const link=driveDocumentLink(id,'Apri documento su Google Drive ↗');area.append(link);
+  const download=document.createElement('a');download.className='btn';download.href=previewURL;download.download='DDT-'+id+(mime==='application/pdf'?'.pdf':mime==='image/png'?'.png':'.jpg');download.textContent='Scarica documento';area.append(download);
+  if(mime==='application/pdf'){const frame=document.createElement('iframe');frame.className='preview';frame.title='Anteprima documento';frame.src=previewURL;area.append(frame);}else mountImagePreview(area,previewURL);
+ }catch(e){if(document.getElementById('bytePreview')===area)area.textContent=e.message;}
+}
 async function showOriginal(r){try{if(!hasSession())throw Error('Accedi con Google per aprire il documento originale.');const f=await originalDDT(r);await showBytes(f.id,f.mimeType)}catch(e){toast(e.message)}}
 function syncGoogleLogin(){
  $('login').textContent=hasSession()?'Esci da Google':'Accedi con Google';
