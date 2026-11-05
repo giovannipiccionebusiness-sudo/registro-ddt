@@ -58,3 +58,29 @@ async function saveDDTDetails(r,changes){
   return next;
  };return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();
 }
+
+function duplicateDDTRows(record,rows){
+ const norm=v=>String(v||'').trim().toUpperCase().replace(/\s+/g,' ');
+ const filename=v=>norm(v).replace(/^✅\s*/,'');
+ const number=v=>norm(v).replace(/[\\/]/g,'-').replace(/\s/g,'');
+ return rows.filter(other=>other.row!==record.row&&(
+ (record.name&&filename(record.name)===filename(other.name))||
+ (record.company&&record.ddt&&record.date&&record.cdc&&
+ norm(record.company)===norm(other.company)&&number(record.ddt)===number(other.ddt)&&
+ norm(record.date)===norm(other.date)&&norm(record.cdc)===norm(other.cdc))));
+}
+async function deleteDuplicateDDTRow(record){
+ const work=async()=>{
+ const current=await listDDT();
+ await checkSnapshot(record);
+ if(!duplicateDDTRows(record,current.rows).length)throw Error('La riga non risulta più duplicata. Aggiorna il registro.');
+ const metadata=await sheetMetadata();
+ await checkSnapshot(record);
+ await googleRequest(sheetURL+DDTConfig.sheetId+':batchUpdate',jsonOptions('POST',{
+ requests:[{deleteDimension:{range:{sheetId:metadata.sheetId,dimension:'ROWS',startIndex:record.row-1,endIndex:record.row}}}]
+ }));
+ };
+ return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},lock=>{
+ if(!lock)throw Error('Un’altra operazione è in corso.');return work();
+ }):work();
+}
