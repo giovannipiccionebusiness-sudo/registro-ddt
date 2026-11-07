@@ -102,6 +102,88 @@
   finally{exportingHistory=false;$('downloadSiteDDTs').disabled=!historyPDFs.length;}
  };
 
+ const monthSummary=$('monthSummary'),summaryButton=$('openMonthSummary');
+ const summaryColumns=[
+  ['orders','Ordini'],['linked','Ordini con DDT'],['requests','DDT da richiedere'],['pending','DDT da protocollare']
+ ];
+ let summarySelection=null;
+ function monthlyGroups(month,orders,documents,links,currentDate){
+  const linkedByOrder=new Map();
+  for(const document of documents){
+   const order=C.match(document,orders,links).order;
+   if(!order)continue;
+   if(!linkedByOrder.has(order.id))linkedByOrder.set(order.id,[]);
+   linkedByOrder.get(order.id).push(document);
+  }
+  const groups=new Map();
+  for(const order of orders){
+   if(order.manual==='ANNULLATO'||C.dateISO(order.date).slice(0,7)!==month)continue;
+   const site=order.site||'Sede da verificare',cdc=order.cdc||'CDC da verificare';
+   const key=JSON.stringify([site,cdc]);
+   if(!groups.has(key))groups.set(key,{key,site,cdc,orders:[],linked:[],requests:[],pending:[]});
+   const group=groups.get(key),documents=linkedByOrder.get(order.id)||[];
+   group.orders.push(order);
+   if(documents.length)group.linked.push(order);
+   if(C.status(order,documents,currentDate).endsWith('DDT da richiedere'))group.requests.push(order);
+   group.pending.push(...documents.filter(document=>!isDone(document)&&!document.url));
+  }
+  return [...groups.values()].sort((a,b)=>a.site.localeCompare(b.site,'it')||a.cdc.localeCompare(b.cdc,'it'));
+ }
+ function renderMonthlySummary(){
+  if(monthSummary.hidden)return;
+  const body=$('summaryGroups'),detail=$('summaryDetails'),list=$('summaryDetailList'),status=$('summaryStatus');
+  body.replaceChildren();list.replaceChildren();detail.hidden=true;
+  if(!OrdersState.loaded||OrdersState.error){status.textContent=OrdersState.error||'Accedi con Google e aggiorna gli ordini.';return;}
+  const month=$('summaryMonth').value;
+  if(!/^\d{4}-\d{2}$/.test(month)){status.textContent='Seleziona un mese.';return;}
+  const groups=monthlyGroups(month,OrdersState.orders,data,OrdersState.links,today());
+  status.textContent=groups.length?'Seleziona un conteggio per aprire l’elenco.':'Nessun ordine per il mese selezionato.';
+  for(const group of groups){
+   const row=document.createElement('tr');
+   for(const value of [group.site,group.cdc]){
+    const cell=document.createElement('td');cell.textContent=value;row.append(cell);
+   }
+   for(const [key,label] of summaryColumns){
+    const cell=document.createElement('td'),count=group[key].length;
+    if(count){
+     const button=document.createElement('button');
+     button.type='button';button.className='btn';button.textContent=count;
+     button.setAttribute('aria-label',label+' · '+group.site+' · '+group.cdc+' · '+count);
+     button.onclick=()=>{
+      summarySelection={group:group.key,key};
+      renderMonthlySummary();
+      $('summaryDetailTitle').focus();
+     };
+     cell.append(button);
+    }else cell.textContent='0';
+    row.append(cell);
+   }
+   body.append(row);
+  }
+  const group=groups.find(item=>item.key===summarySelection?.group);
+  if(!group||!group[summarySelection.key].length)return;
+  const key=summarySelection.key,ddt=key==='pending';
+  $('summaryDetailTitle').textContent=summaryColumns.find(column=>column[0]===key)[1]+' · '+group.site+' · '+group.cdc;
+  for(const record of group[key].slice().sort((a,b)=>C.dateISO(b.date).localeCompare(C.dateISO(a.date)))){
+   const button=document.createElement('button');
+   button.type='button';button.className='order-card';
+   const title=ddt?'DDT '+(record.ddt||record.name):'Ordine '+(record.number||'da verificare');
+   const info=[record.company,record.date,ddt&&record.protocol?'Prot. '+record.protocol:''].filter(Boolean).join(' · ');
+   button.innerHTML='<strong>'+E(title)+'</strong><p>'+E(info)+'</p>';
+   button.onclick=()=>ddt?openDetail(record.row):openOrder(record.id);
+   list.append(button);
+  }
+  detail.hidden=false;
+ }
+ summaryButton.onclick=()=>{
+  monthSummary.hidden=!monthSummary.hidden;
+  summaryButton.setAttribute('aria-expanded',String(!monthSummary.hidden));
+  if(monthSummary.hidden)return;
+  if(!$('summaryMonth').value)$('summaryMonth').value=today().slice(0,7);
+  renderMonthlySummary();$('summaryMonth').focus();
+ };
+ $('summaryMonth').onchange=()=>{summarySelection=null;renderMonthlySummary();};
+
  function highlight(){document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav==='orders'));}
  function renderOverview(){
  const all=OrdersState.orders,ready=OrdersState.loaded&&!OrdersState.error;
@@ -110,7 +192,7 @@
  $('overviewHint').textContent=OrdersState.error||(!ready?'Accedi con Google e aggiorna per visualizzare gli ordini.':'Un DDT collegato documenta la consegna. Senza DDT, verifica la merce o richiedi il documento.');
  }
  function renderOrders(){
- renderOverview();renderSiteHistory();
+ renderOverview();renderSiteHistory();renderMonthlySummary();
  document.querySelectorAll('.order-quick-filters [data-order-quick]').forEach(b=>{const active=b.dataset.orderQuick===$('orderFilter').value;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
  const q=$('orderSearch').value.toLocaleLowerCase('it'),mode=$('orderFilter').value,supplier=$('orderSupplier').value,cdc=$('orderCDC').value;
  $('ordersConnection').textContent=OrdersState.error||(!OrdersState.loaded?'Accedi con Google per leggere gli ordini.':'Importazione email: '+(OrdersState.config['Stato importazione']||'NON ATTIVA')+' · Ultimo controllo: '+(OrdersState.config['Ultimo controllo']||'non ancora eseguito'));
@@ -215,7 +297,7 @@
  window.orderFormDirty=()=>dialog.open&&selectedOrder&&[...dialog.querySelectorAll('[data-order-field]')].some(el=>String(el.value).trim()!==String(selectedOrder[el.dataset.orderField]||''));
  window.addEventListener('beforeunload',event=>{if(OrdersState.busy){event.preventDefault();event.returnValue='';}});
  const baseNav=nav;nav=function(mode){visible=mode==='orders';baseNav(visible?'all':mode);section.hidden=!visible;
- if(!visible){history.hidden=true;historyButton.setAttribute('aria-expanded','false');}
+ if(!visible){history.hidden=true;historyButton.setAttribute('aria-expanded','false');monthSummary.hidden=true;summaryButton.setAttribute('aria-expanded','false');}
  if(visible){$('registry').classList.add('hidden');$('help').classList.add('hidden');document.querySelector('.head h1').textContent='Ordini e consegne';highlight();renderOrders();if(!OrdersState.loaded)load();if(window.matchMedia('(max-width:720px)').matches)requestAnimationFrame(()=>section.scrollIntoView({block:'start'}));}
  else document.querySelector('.head h1').textContent='Registro documenti';
  $('ddtStats').hidden=visible||mode==='help';
