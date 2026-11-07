@@ -99,6 +99,8 @@ function ddtOriginalName(company,number,original){
 }
 function renderDetailEditor(r){
  const editable=live&&canProtocol&&!isDone(r)&&!r.url,disabled=editable?'':'disabled';
+ $('rereadDDT').hidden=!editable;
+ $('rereadResult').replaceChildren();
  $('details').innerHTML=[['company','Fornitore'],['ddt','Numero DDT'],['date','Data documento'],['cdc','Centro di costo'],['order','Ordine Dussmann'],['name','Nome originale']].map(([key,label])=>{
  const choice=key==='company'||key==='cdc';
  const input=`<input id="edit_${key}" data-detail-key="${key}" value="${esc(r[key])}" ${disabled} ${choice&&r[key]?'hidden':''} ${key==='date'?'placeholder="gg/mm/aaaa"':''} ${choice?`aria-label="${key==='company'?'Nuovo fornitore':'Nuovo centro di costo'}" placeholder="${key==='company'?'Scrivi il nuovo fornitore':'Es. N154'}"`:''}>`;
@@ -114,6 +116,47 @@ function renderDetailEditor(r){
  }
  $('saveDetails').disabled=!editable;$('editHint').textContent=editable?'Scegli i valori esistenti oppure aggiungine uno nuovo. Salva dati aggiorna il registro. Se cambi il nome originale, devi confermare la rinomina su Drive prima di protocollare.':'Per modificare i dati occorre un registro collegato; i documenti già protocollati sono bloccati.';
 }
+$('rereadDDT').onclick=async()=>{
+ const record=selected,button=$('rereadDDT'),result=$('rereadResult');
+ if(!record||!hasSession()||folderBatchBusy||button.hidden)return;
+ button.disabled=true;
+ result.textContent='Lettura del documento originale…';
+ const current=()=>selected===record&&!$('overlay').classList.contains('hidden');
+ try{
+  const file=await originalDDT(record);
+  const fields=await readDDTFields(new Blob([await downloadDrive(file.id)],{type:file.mimeType}));
+  if(!current())return;
+  const labels={company:'Fornitore',ddt:'Numero DDT',date:'Data documento',cdc:'Centro di costo',order:'Ordine Dussmann'};
+  const eligible=key=>fields[key]&&!record[key]&&!$('edit_'+key).value.trim();
+  const keys=Object.keys(labels).filter(eligible);
+  if(!keys.length){result.textContent='La rilettura non ha trovato nuovi valori per i campi vuoti.';return;}
+  const list=document.createElement('ul');
+  for(const key of keys){
+   const item=document.createElement('li');item.textContent=labels[key]+' · '+fields[key];list.append(item);
+  }
+  const apply=document.createElement('button');
+  apply.type='button';apply.className='btn';apply.textContent='Usa i valori rilevati';
+  apply.onclick=()=>{
+   if(!current())return;
+   let applied=0;
+   for(const key of keys.filter(eligible)){
+    const input=$('edit_'+key);
+    if(key==='company'||key==='cdc'){
+     const select=$('choice_'+key);
+     if(!Array.from(select.options).some(option=>option.value===fields[key]))select.add(new Option(fields[key],fields[key]),select.options.length-1);
+     select.value=fields[key];select.dispatchEvent(new Event('change'));
+    }else{
+     input.value=fields[key];input.dispatchEvent(new Event('input'));
+    }
+    applied++;
+   }
+   result.textContent=applied?'Valori inseriti nei campi vuoti. Premi “Salva dati” per confermare.':'I campi sono già stati compilati.';
+  };
+  result.replaceChildren(list,apply);
+ }catch(error){if(current())result.textContent=error.message;}
+ finally{button.disabled=false;}
+};
+
 function detailDirty(){return selected&&[...document.querySelectorAll('[data-detail-key]')].some(e=>e.value.trim()!==selected[e.dataset.detailKey]);}
 for(const id of ['saveProtocol','saveProtocolOnly']){const previous=$(id).onclick;$(id).onclick=e=>{if(detailDirty())return toast('Salva prima le correzioni con “Salva dati”.');return previous(e);};}
 $('saveDetails').onclick=async()=>{if(!selected||!live||folderBatchBusy)return;const r=selected,changes=Object.fromEntries([...document.querySelectorAll('[data-detail-key]')].map(e=>[e.dataset.detailKey,e.value]));if(changes.name.trim()!==r.name&&!window.confirm('Confermi la rinomina del file originale su Google Drive?\n\nNome attuale:\n'+r.name+'\n\nNuovo nome:\n'+changes.name.trim()+'\n\nLa rinomina verrà salvata anche nel registro prima della protocollazione.'))return;const controls=['saveDetails','saveProtocol','saveProtocolOnly','close'];controls.forEach(id=>$(id).disabled=true);$('saveProtocol').dataset.busy='1';try{await saveDDTDetails(r,changes);delete $('saveProtocol').dataset.busy;closeDetail();await refresh();openDetail(r.row);toast('Dati salvati nel registro. Nome del file originale sincronizzato su Drive.');}catch(e){toast(e.message);}finally{delete $('saveProtocol').dataset.busy;$('close').disabled=false;if(!$('overlay').classList.contains('hidden')){$('saveDetails').disabled=!live||isDone(selected);$('saveProtocol').disabled=!live||isDone(selected);$('saveProtocolOnly').disabled=!live||isDone(selected);}}};

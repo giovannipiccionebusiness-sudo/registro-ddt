@@ -16,9 +16,11 @@
   select.innerHTML=options(values,label);
   select.value=values.includes(previous)?previous:'';
  }
+ let historyPDFs=[],exportingHistory=false;
  function renderSiteHistory(){
   if($('siteHistory').hidden)return;
   const status=$('historyStatus'),list=$('historyList');
+  historyPDFs=[];$('downloadSiteDDTs').disabled=true;
   list.replaceChildren();
   const orders=OrdersState.orders;
   historyFilter('historySite',orders.map(o=>o.site),'Scegli una sede');
@@ -37,8 +39,15 @@
   if(!OrdersState.loaded||OrdersState.error){status.textContent=OrdersState.error||'Caricamento degli ordini…';return;}
   if(!site){status.textContent='Scegli una sede per consultare lo storico.';return;}
   const supplier=$('historySupplier').value,cdc=$('historyCDC').value;
-  const shown=entries.filter(entry=>(!supplier||entry.company===supplier)&&(!cdc||entry.cdc===cdc))
-   .sort((a,b)=>C.dateISO(b.date).localeCompare(C.dateISO(a.date)));
+  const from=$('historyFrom').value,to=$('historyTo').value;
+  if(from&&to&&from>to){status.textContent='La data finale precede quella iniziale.';return;}
+  const shown=entries.filter(entry=>{
+   const date=C.dateISO(entry.date);
+   return (!supplier||entry.company===supplier)&&(!cdc||entry.cdc===cdc)&&
+    ((!from&&!to)||(date&&(!from||date>=from)&&(!to||date<=to)));
+  }).sort((a,b)=>C.dateISO(b.date).localeCompare(C.dateISO(a.date)));
+  historyPDFs=shown.map(entry=>entry.ddt).filter(ddt=>ddt&&isDone(ddt)&&ddt.url);
+  $('downloadSiteDDTs').disabled=exportingHistory||!historyPDFs.length;
   status.textContent=shown.length?shown.length+' documenti · '+site:'Nessun documento corrisponde ai filtri.';
   for(const entry of shown){
    const {order,ddt}=entry;
@@ -57,7 +66,40 @@
   historyButton.setAttribute('aria-expanded',String(!history.hidden));
   if(!history.hidden){renderSiteHistory();$('historySite').focus();history.scrollIntoView({block:'start'});}
  };
- for(const id of ['historySite','historySupplier','historyCDC'])$(id).onchange=renderSiteHistory;
+ for(const id of ['historySite','historySupplier','historyCDC','historyFrom','historyTo'])$(id).onchange=renderSiteHistory;
+ $('downloadSiteDDTs').onclick=async()=>{
+  if(exportingHistory||!historyPDFs.length)return;
+  const status=$('historyExportStatus');
+  if(!hasSession()){status.textContent='Accedi con Google per scaricare i PDF.';return;}
+  if(!window.JSZip){status.textContent='Funzione ZIP non disponibile. Aggiorna la pagina e riprova.';return;}
+  const files=historyPDFs.slice(),site=$('historySite').value;
+  exportingHistory=true;$('downloadSiteDDTs').disabled=true;
+  try{
+   const zip=new JSZip(),seen=new Set();
+   let size=0;
+   for(const [index,ddt] of files.entries()){
+    status.textContent='Scaricamento PDF '+(index+1)+' di '+files.length+'…';
+    const url=safeDrive(ddt.url);
+    const id=url?.pathname.match(/^\/file\/d\/([\w-]+)(?:\/|$)/)?.[1]||url?.searchParams.get('id');
+    if(!id||!/^[\w-]{10,}$/.test(id))throw Error('Link al PDF non valido per il DDT '+ddt.ddt+'.');
+    if(seen.has(id))continue;
+    const bytes=await downloadDrive(id);
+    size+=bytes.byteLength;
+    if(size>100*1024*1024)throw Error('Lo ZIP supera 100 MB. Seleziona un periodo più breve.');
+    seen.add(id);
+    const filename=[ddt.company,'DDT',ddt.ddt,ddt.protocol?'Prot_'+ddt.protocol:''].filter(Boolean).join('_').replace(/[^\w.-]+/g,'-');
+    zip.file(String(index+1).padStart(3,'0')+'_'+filename+'.pdf',bytes);
+   }
+   status.textContent='Preparazione dello ZIP…';
+   const blob=await zip.generateAsync({type:'blob'});
+   const href=URL.createObjectURL(blob),link=document.createElement('a');
+   link.href=href;link.download='DDT_'+site.replace(/[^\w-]+/g,'_')+'.zip';
+   document.body.append(link);link.click();link.remove();
+   setTimeout(()=>URL.revokeObjectURL(href),60000);
+   status.textContent='ZIP pronto · '+seen.size+' PDF.';
+  }catch(error){status.textContent='Scaricamento interrotto. '+error.message;}
+  finally{exportingHistory=false;$('downloadSiteDDTs').disabled=!historyPDFs.length;}
+ };
 
  function highlight(){document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav==='orders'));}
  function renderOverview(){
@@ -188,10 +230,55 @@
  const baseRefresh=refresh;refresh=async()=>{await baseRefresh();await load();};$('refresh').onclick=refresh;
  const baseEditor=renderDetailEditor;
  renderDetailEditor=function(r){baseEditor(r);renderDDTOrderInfo(r);};
- function renderDDTOrderInfo(r){$('ddtOrderInfo')?.remove();const box=document.createElement('div');box.id='ddtOrderInfo';box.className='notice';const match=C.match(r,OrdersState.orders,OrdersState.links);
- box.innerHTML=match.order?'<div><b>Ordine collegato: '+E(match.order.number)+'</b>'+E(match.order.site)+' · '+(match.manual?'collegamento manuale':'riconosciuto automaticamente')+'</div><button type="button" class="btn">Consulta ordine</button>':'<div><b>Ordine non collegato</b>'+E(!OrdersState.loaded?'Apri Ordini e aggiorna il registro.':match.warning)+'. Puoi collegarlo dalla scheda dell’ordine.</div><button type="button" class="btn">Vai agli ordini</button>';
- box.querySelector('button').onclick=()=>{if(match.order)openOrder(match.order.id);else{closeDetail();nav('orders');}};
- $('preview').before(box);
+ function renderDDTOrderInfo(r){
+  $('ddtOrderInfo')?.remove();
+  const box=document.createElement('div');
+  box.id='ddtOrderInfo';box.className='notice';
+  const match=C.match(r,OrdersState.orders,OrdersState.links);
+  box.innerHTML=match.order
+   ?'<div><b>Ordine collegato: '+E(match.order.number)+'</b>'+E(match.order.site)+' · '+(match.manual?'collegamento manuale':'riconosciuto automaticamente')+'</div><button type="button" class="btn">Consulta ordine</button>'
+   :'<div><b>Ordine non collegato</b>'+E(OrdersState.loaded?match.warning:'Aggiorna gli ordini per cercare una corrispondenza.')+'</div>';
+  if(match.order)box.querySelector('button').onclick=()=>openOrder(match.order.id);
+  if(!match.order&&hasSession()&&live){
+   const chooser=document.createElement('details');
+   chooser.innerHTML='<summary>Collega a un ordine</summary><p>Cerca per numero, sede, fornitore o CDC e verifica i dati prima di collegare.</p><label>Cerca ordine <input type="search" placeholder="Numero, sede, fornitore o CDC"></label><div class="order-list"></div><p role="status"></p>';
+   box.append(chooser);
+   const search=chooser.querySelector('input'),list=chooser.querySelector('.order-list'),status=chooser.querySelector('[role=status]');
+   const supplier=C.company(r.company);
+   const renderCandidates=()=>{
+    const query=C.norm(search.value);
+    const exact=new Set(C.candidates(r,OrdersState.orders).map(order=>order.id));
+    const rank=o=>exact.has(o.id)?3:supplier&&C.company(o.company)===supplier?(C.norm(o.cdc)===C.norm(r.cdc)?2:1):0;
+    const found=OrdersState.orders.filter(o=>o.number&&C.norm(o.manual)!=='ANNULLATO'&&
+     (query?C.norm([o.number,o.site,o.address,o.company,o.cdc].join(' ')).includes(query):rank(o)>0))
+     .sort((a,b)=>rank(b)-rank(a)||C.dateISO(b.date).localeCompare(C.dateISO(a.date)));
+    list.replaceChildren();
+    status.textContent=!found.length?'Nessun ordine trovato. Prova a cercare per numero.':found.length>20?'Sono mostrati i primi 20 risultati. Restringi la ricerca per vederne altri.':'';
+    for(const order of found.slice(0,20)){
+     const button=document.createElement('button');button.type='button';button.className='order-card';
+     button.innerHTML='<strong>'+E(order.number)+'</strong><p>'+E([order.company,order.site,order.cdc,order.date].filter(Boolean).join(' · '))+'</p>';
+     button.onclick=async()=>{
+      if(!window.confirm('Collegare il DDT '+r.ddt+' all’ordine '+order.number+'?'))return;
+      search.disabled=true;
+      list.querySelectorAll('button').forEach(item=>item.disabled=true);
+      try{await linkDDTToOrder(r,order);await load();toast('DDT collegato all’ordine '+order.number+'.');}
+      catch(error){status.textContent=error.message;}
+      finally{search.disabled=false;list.querySelectorAll('button').forEach(item=>item.disabled=false);}
+     };
+     list.append(button);
+    }
+   };
+   search.oninput=renderCandidates;
+   chooser.ontoggle=async()=>{
+    if(!chooser.open)return;
+    if(!OrdersState.loaded||OrdersState.error){
+     status.textContent='Caricamento degli ordini…';
+     try{await fetchOrders();syncFilters();renderOrders();}catch(error){status.textContent=error.message;return;}
+    }
+    renderCandidates();search.focus();
+   };
+  }
+  $('preview').before(box);
  }
  function releasePDF(){if(pdfURL)URL.revokeObjectURL(pdfURL);pdfURL='';}
  dialog.addEventListener('close',()=>{releasePDF();$('orderPDF').innerHTML='';});

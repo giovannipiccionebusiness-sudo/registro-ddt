@@ -210,8 +210,25 @@ async function saveDDTDetails(r,changes){
   if(next.cdc&&!/^N\d{3}$/.test(next.cdc))throw Error('Centro di costo non valido: usa il formato N153.');
   if(next.date){const m=next.date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!m)throw Error('Data richiesta nel formato gg/mm/aaaa.');const d=new Date(+m[3],+m[2]-1,+m[1]);if(d.getFullYear()!==+m[3]||d.getMonth()!==+m[2]-1||d.getDate()!==+m[1])throw Error('Data documento non valida.');}
   const renamed=next.name!==r.name;let f;
+  const oldKey=OrdersCore.ddtKey(r),nextKey=OrdersCore.ddtKey(next);
+  let linkRow;
+  if(oldKey!==nextKey&&OrdersState.links.some(link=>link.key===oldKey)){
+   const links=await ordersRead('CollegamentiOrdini','A2:C');
+   const indexes=links.flatMap((row,index)=>row[0]===oldKey?[index+2]:[]);
+   if(indexes.length!==1||links.some(row=>row[0]===nextKey))throw Error('Aggiorna il registro: il collegamento all’ordine è cambiato.');
+   linkRow=indexes[0];
+  }
   if(renamed){const all=await listDDT();if(all.rows.some(x=>x.row!==r.row&&x.name.toLowerCase()===next.name.toLowerCase()))throw Error('Nome già usato nel registro.');f=await originalDDT(r);if((await listFiles(DDTConfig.originals,next.name)).some(x=>x.id!==f.id))throw Error('Esiste già un altro file con questo nome nella cartella.');await checkSnapshot(r);await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name:next.name}));}
-  try{await checkSnapshot(r);await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A'+r.row+':F'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[next.name,next.company,next.ddt,next.date,next.cdc,next.order]]}));}
+  try{
+   await checkSnapshot(r);
+   const range='A'+r.row+':F'+r.row,values=[[next.name,next.company,next.ddt,next.date,next.cdc,next.order]];
+   if(linkRow){
+    const tab="'"+DDTConfig.tab.replace(/'/g,"''")+"'!";
+    await googleRequest(sheetURL+DDTConfig.sheetId+'/values:batchUpdate',jsonOptions('POST',{valueInputOption:'RAW',data:[
+     {range:tab+range,values},{range:"'CollegamentiOrdini'!A"+linkRow,values:[[nextKey]]}
+    ]}));
+   }else await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange(range)+'?valueInputOption=RAW',jsonOptions('PUT',{values}));
+  }
   catch(e){if(renamed){try{await checkSnapshot(r);await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name:f.name}));}catch{throw Error('Salvataggio non confermato. Verifica la riga '+r.row+' e il file su Drive prima di riprovare. Nome richiesto: '+next.name);}}throw e;}
   return next;
  };return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();
