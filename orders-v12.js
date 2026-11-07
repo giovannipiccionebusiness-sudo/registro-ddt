@@ -140,11 +140,12 @@
   status.textContent=groups.length?'Seleziona un conteggio per aprire l’elenco.':'Nessun ordine per il mese selezionato.';
   for(const group of groups){
    const row=document.createElement('tr');
-   for(const value of [group.site,group.cdc]){
-    const cell=document.createElement('td');cell.textContent=value;row.append(cell);
+   for(const [label,value] of [['Sede',group.site],['CDC',group.cdc]]){
+    const cell=document.createElement('td');cell.dataset.label=label;cell.textContent=value;row.append(cell);
    }
    for(const [key,label] of summaryColumns){
     const cell=document.createElement('td'),count=group[key].length;
+    cell.dataset.label=label;
     if(count){
      const button=document.createElement('button');
      button.type='button';button.className='btn';button.textContent=count;
