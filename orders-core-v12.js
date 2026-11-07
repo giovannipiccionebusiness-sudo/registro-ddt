@@ -16,7 +16,18 @@ var OrdersCore=(()=>{
  function match(ddt,orders,links){const key=ddtKey(ddt),manual=(links||[]).find(x=>x.key===key);if(manual){const order=orders.find(o=>o.id===manual.orderId);return order?{order,manual:true,candidates:[order]}:{order:null,candidates:[],warning:'Collegamento manuale da verificare'};}
  const found=candidates(ddt,orders);return {order:found.length===1?found[0]:null,candidates:found,warning:found.length>1?'Più ordini compatibili: scegli il collegamento':'Nessun ordine compatibile'};}
  function dateISO(value){const m=String(value||'').match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);if(!m)return '';const y=+m[3],mo=+m[2],d=+m[1],date=new Date(Date.UTC(y,mo-1,d));return date.getUTCFullYear()===y&&date.getUTCMonth()===mo-1&&date.getUTCDate()===d?String(y)+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'):'';}
- function status(o,related,today){if(o.manual==='ANNULLATO')return 'Annullato';if(o.manual==='PARZIALE')return 'Parzialmente ricevuto';if(related.length)return 'Consegnato';if(o.manual==='DDT_DA_RICHIEDERE'||o.manual==='COMPLETATO')return 'Merce ricevuta, DDT da richiedere';return 'Da consegnare / DDT mancante';}
+ function status(o,related,today){
+  if(o.manual==='ANNULLATO')return 'Annullato';
+  if(o.manual==='PARZIALE'&&related.length)return 'Parzialmente ricevuto';
+  if(related.length)return 'Consegnato';
+  if(o.manual==='DDT_DA_RICHIEDERE'||o.manual==='COMPLETATO')return 'Merce ricevuta, DDT da richiedere';
+  const ordered=dateISO(o.date);
+  const [year,month]=ordered.split('-').map(Number);
+  const cutoff=ordered.slice(0,8)+String(new Date(Date.UTC(year,month,0)).getUTCDate()-5).padStart(2,'0');
+  if(o.manual==='DDT_FINE_MESE'||(ordered&&today>=ordered&&today>=cutoff))return 'DDT da richiedere';
+  if(o.manual==='PARZIALE')return 'Parzialmente ricevuto';
+  return 'Da consegnare / DDT mancante';
+ }
  function deliveryAddress(value){const t=String(value||'').replace(/\s+/g,' ').trim();const road=t.match(/\b(?:VIALE|VIA|CONTRADA|CONTR\.?|CORSO|PIAZZA|P\.?ZZA|LARGO|VICO|STRADA)\s+[^]*?(?=\s+(?:Riferimento\s*:|Orari\s*:|Telefono\s*:|Giovanni Piccione|Dario Manzari|IL PRESENTE ORDINE)|$)/i)?.[0]||'';return road.replace(/\s+(?:LE|BR|TA)\s+IT\b.*$/i,'').replace(/\s+IT\b.*$/i,'').trim();}
  function parsePDF(text,subject,sites){
  const t=String(text||'').replace(/\u00a0/g,' '),warnings=[];
