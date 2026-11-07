@@ -11,6 +11,54 @@
  const related=o=>data.filter(r=>C.match(r,OrdersState.orders,OrdersState.links).order?.id===o.id);
  const state=o=>C.status(o,related(o),today());
  const options=(values,first)=>'<option value="">'+E(first)+'</option>'+[...new Set(values.filter(Boolean))].sort().map(v=>'<option>'+E(v)+'</option>').join('');
+ function historyFilter(id,values,label){
+  const select=$(id),previous=select.value;
+  select.innerHTML=options(values,label);
+  select.value=values.includes(previous)?previous:'';
+ }
+ function renderSiteHistory(){
+  if($('siteHistory').hidden)return;
+  const status=$('historyStatus'),list=$('historyList');
+  list.replaceChildren();
+  const orders=OrdersState.orders;
+  historyFilter('historySite',orders.map(o=>o.site),'Scegli una sede');
+  const site=$('historySite').value;
+  const siteOrders=orders.filter(o=>o.site===site&&site);
+  const entries=siteOrders.map(o=>({order:o,date:o.date,company:o.company,cdc:o.cdc}));
+  const selectedIds=new Set(siteOrders.map(o=>o.id));
+  if(siteOrders.length){
+   for(const ddt of data){
+    const order=C.match(ddt,orders,OrdersState.links).order;
+    if(order&&selectedIds.has(order.id))entries.push({order,ddt,date:ddt.date,company:order.company||ddt.company,cdc:ddt.cdc||order.cdc});
+   }
+  }
+  historyFilter('historySupplier',entries.map(entry=>entry.company),'Tutti i fornitori');
+  historyFilter('historyCDC',entries.map(entry=>entry.cdc),'Tutti i CDC');
+  if(!OrdersState.loaded||OrdersState.error){status.textContent=OrdersState.error||'Caricamento degli ordini…';return;}
+  if(!site){status.textContent='Scegli una sede per consultare lo storico.';return;}
+  const supplier=$('historySupplier').value,cdc=$('historyCDC').value;
+  const shown=entries.filter(entry=>(!supplier||entry.company===supplier)&&(!cdc||entry.cdc===cdc))
+   .sort((a,b)=>C.dateISO(b.date).localeCompare(C.dateISO(a.date)));
+  status.textContent=shown.length?shown.length+' documenti · '+site:'Nessun documento corrisponde ai filtri.';
+  for(const entry of shown){
+   const {order,ddt}=entry;
+   const title=ddt?'DDT '+(ddt.ddt||ddt.name):'Ordine '+order.number;
+   const details=[entry.date,entry.company,entry.cdc,ddt?(ddt.protocol?'Prot. '+ddt.protocol:'Da protocollare'):''].filter(Boolean);
+   const button=document.createElement('button');
+   button.type='button';button.className='order-card';
+   button.innerHTML='<strong>'+E(title)+'</strong><p>'+E(details.join(' · '))+'</p>'+(ddt?'<p>Ordine '+E(order.number)+'</p>':'');
+   button.onclick=()=>ddt?openDetail(ddt.row):openOrder(order.id);
+   list.append(button);
+  }
+ }
+ const history=$('siteHistory'),historyButton=$('openSiteHistory');
+ historyButton.onclick=()=>{
+  history.hidden=!history.hidden;
+  historyButton.setAttribute('aria-expanded',String(!history.hidden));
+  if(!history.hidden){renderSiteHistory();$('historySite').focus();history.scrollIntoView({block:'start'});}
+ };
+ for(const id of ['historySite','historySupplier','historyCDC'])$(id).onchange=renderSiteHistory;
+
  function highlight(){document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav==='orders'));}
  function renderOverview(){
  const all=OrdersState.orders,ready=OrdersState.loaded&&!OrdersState.error;
@@ -19,7 +67,7 @@
  $('overviewHint').textContent=OrdersState.error||(!ready?'Accedi con Google e aggiorna per visualizzare gli ordini.':'Un DDT collegato documenta la consegna. Senza DDT, verifica la merce o richiedi il documento.');
  }
  function renderOrders(){
- renderOverview();
+ renderOverview();renderSiteHistory();
  document.querySelectorAll('.order-quick-filters [data-order-quick]').forEach(b=>{const active=b.dataset.orderQuick===$('orderFilter').value;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
  const q=$('orderSearch').value.toLocaleLowerCase('it'),mode=$('orderFilter').value,supplier=$('orderSupplier').value,cdc=$('orderCDC').value;
  $('ordersConnection').textContent=OrdersState.error||(!OrdersState.loaded?'Accedi con Google per leggere gli ordini.':'Importazione email: '+(OrdersState.config['Stato importazione']||'NON ATTIVA')+' · Ultimo controllo: '+(OrdersState.config['Ultimo controllo']||'non ancora eseguito'));
@@ -124,6 +172,7 @@
  window.orderFormDirty=()=>dialog.open&&selectedOrder&&[...dialog.querySelectorAll('[data-order-field]')].some(el=>String(el.value).trim()!==String(selectedOrder[el.dataset.orderField]||''));
  window.addEventListener('beforeunload',event=>{if(OrdersState.busy){event.preventDefault();event.returnValue='';}});
  const baseNav=nav;nav=function(mode){visible=mode==='orders';baseNav(visible?'all':mode);section.hidden=!visible;
+ if(!visible){history.hidden=true;historyButton.setAttribute('aria-expanded','false');}
  if(visible){$('registry').classList.add('hidden');$('help').classList.add('hidden');document.querySelector('.head h1').textContent='Ordini e consegne';highlight();renderOrders();if(!OrdersState.loaded)load();if(window.matchMedia('(max-width:720px)').matches)requestAnimationFrame(()=>section.scrollIntoView({block:'start'}));}
  else document.querySelector('.head h1').textContent='Registro documenti';
  $('ddtStats').hidden=visible||mode==='help';
