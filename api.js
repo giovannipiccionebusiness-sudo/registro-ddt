@@ -30,16 +30,119 @@ async function originalDDT(r){await checkSnapshot(r);let fs=await listFiles(DDTC
 async function downloadDrive(id){return googleRequest(driveURL+'/'+encodeURIComponent(id)+'?alt=media',{binary:true});}
 async function uploadDrive(blob,metadata,convert=false){const boundary='ddt_'+crypto.randomUUID();const body=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n--'+boundary+'\r\nContent-Type: '+(blob.type||'application/octet-stream')+'\r\n\r\n',blob,'\r\n--'+boundary+'--'],{type:'multipart/related; boundary='+boundary});return googleRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,appProperties'+(convert?'&ocrLanguage=it':''),{method:'POST',body});}
 async function ocrDDT(blob){const doc=await uploadDrive(blob,{name:'OCR_TEMP_DDT_'+crypto.randomUUID(),mimeType:'application/vnd.google-apps.document'},true);try{return await googleRequest(driveURL+'/'+doc.id+'/export?mimeType=text%2Fplain',{text:true});}finally{try{await googleRequest(driveURL+'/'+doc.id,jsonOptions('PATCH',{trashed:true}));}catch(e){console.warn('Pulizia OCR non riuscita:',e.message);}}}
-async function saveUploadedDDT(file){if(file.size>8388608||!['application/pdf','image/jpeg','image/png'].includes(file.type))throw Error('Carica PDF, JPG o PNG fino a 8 MB.');await listDDT();const id=crypto.randomUUID();const original=await uploadDrive(file,{name:'CARICAMENTO_'+id+'_'+file.name,parents:[DDTConfig.originals],appProperties:{ddtUpload:id}});let fields={company:'',ddt:'',date:'',cdc:'',order:''},warning='';try{fields=parseDDT(await ocrDDT(file));}catch(e){warning='OCR non riuscito. Originale conservato; completa i dati nel foglio. '+e.message;}
-try{const ext=file.type==='application/pdf'?'.PDF':file.type==='image/png'?'.PNG':'.JPG';let name=fields.company&&fields.ddt?(fields.company+'_DDT_'+fields.ddt+ext).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').toUpperCase():file.name.replace(/\.[^.]+$/,'')+'_'+id.slice(0,8)+ext;const current=await listDDT();const duplicate=fields.company&&fields.ddt&&fields.date&&current.rows.find(r=>r.company===fields.company&&r.ddt===fields.ddt&&r.date===fields.date&&r.cdc===fields.cdc);if(duplicate)throw Error('Possibile DDT già registrato alla riga '+duplicate.row+'. Originale aggiuntivo conservato con nome CARICAMENTO: verifica prima di continuare.');if((await listFiles(DDTConfig.originals,name)).length)name=name.replace(/\.[^.]+$/,'')+'_'+id.slice(0,8)+ext;await googleRequest(driveURL+'/'+original.id,jsonOptions('PATCH',{name}));const values=[name,fields.company,fields.ddt,fields.date,fields.cdc,fields.order,'',warning?'OCR DA VERIFICARE':'DA PROTOCOLLARE',''];await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A:I')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',jsonOptions('POST',{values:[values]}));return{warning,originalId:original.id};}catch(e){throw Error(e.message+' File originale conservato su Drive: '+original.id+'. Non ripetere il caricamento prima della verifica.');}}
+async function saveUploadedDDT(file){if(file.size>8388608||!['application/pdf','image/jpeg','image/png'].includes(file.type))throw Error('Carica PDF, JPG o PNG fino a 8 MB.');await listDDT();const id=crypto.randomUUID();const original=await uploadDrive(file,{name:'CARICAMENTO_'+id+'_'+file.name,parents:[DDTConfig.originals],appProperties:{ddtUpload:id}});let fields={company:'',ddt:'',date:'',cdc:'',order:''},warning='';try{fields=await readDDTFields(file);}catch(e){warning='OCR non riuscito. Originale conservato; completa i dati nel foglio. '+e.message;}
+try{const ext=file.type==='application/pdf'?'.PDF':file.type==='image/png'?'.PNG':'.JPG';let name=fields.company&&fields.ddt?(fields.company+'_DDT_'+fields.ddt+ext).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').toUpperCase():file.name.replace(/\.[^.]+$/,'')+'_'+id.slice(0,8)+ext;const current=await listDDT();const duplicate=fields.company&&fields.ddt&&fields.date&&current.rows.find(r=>r.company===fields.company&&r.ddt===fields.ddt&&r.date===fields.date&&r.cdc===fields.cdc);if(duplicate)throw Error('Possibile DDT già registrato alla riga '+duplicate.row+'. Originale aggiuntivo conservato con nome CARICAMENTO: verifica prima di continuare.');if((await listFiles(DDTConfig.originals,name)).length)name=name.replace(/\.[^.]+$/,'')+'_'+id.slice(0,8)+ext;await googleRequest(driveURL+'/'+original.id,jsonOptions('PATCH',{name}));const values=[name,fields.company,fields.ddt,fields.date,fields.cdc,fields.order,'',ddtReadStatus(fields),''];await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A:I')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',jsonOptions('POST',{values:[values]}));return{warning,originalId:original.id};}catch(e){throw Error(e.message+' File originale conservato su Drive: '+original.id+'. Non ripetere il caricamento prima della verifica.');}}
 async function stampBytes(bytes,mime,text){if(!window.PDFLib)throw Error('Libreria PDF non caricata. Riprova dopo aver aggiornato la pagina.');const P=PDFLib;let pdf,page;if(mime==='application/pdf'){pdf=await P.PDFDocument.load(bytes);page=pdf.getPages()[0];if(!page)throw Error('PDF privo di pagine.');}else{pdf=await P.PDFDocument.create();const img=mime==='image/png'?await pdf.embedPng(bytes):await pdf.embedJpg(bytes);page=pdf.addPage([img.width,img.height]);page.drawImage(img,{x:0,y:0,width:img.width,height:img.height});}const font=await pdf.embedFont(P.StandardFonts.HelveticaBold),{width,height}=page.getSize();let size=mime==='application/pdf'?12:Math.max(18,width*.025);size=Math.min(size,(width-40)/font.widthOfTextAtSize(text,1));const tw=font.widthOfTextAtSize(text,size),x=width-tw-20,y=Math.max(15,height-45);page.drawRectangle({x:x-6,y:y-5,width:tw+12,height:size+11,color:P.rgb(1,1,1),opacity:.85});page.drawText(text,{x,y,size,font,color:P.rgb(0,0,0)});return new Blob([await pdf.save()],{type:'application/pdf'});}
 async function protocolDDT(r,protocol){if(!/^\d{6,20}$/.test(protocol))throw Error('Protocollo numerico richiesto, da 6 a 20 cifre.');const work=async()=>{await checkSnapshot(r);if(r.status==='PROTOCOLLATO'||r.url)throw Error('Documento già protocollato.');if(!/^N\d{3}$/.test(r.cdc)||!r.company||!r.ddt||!r.date||!r.order)throw Error('Completa i dati del DDT nel foglio prima di protocollare.');if(r.protocol&&r.protocol!==protocol)throw Error('Nel registro è presente un protocollo diverso.');const all=await listDDT();if(all.rows.some(s=>s.row!==r.row&&s.protocol===protocol))throw Error('Protocollo già utilizzato per un altro DDT.');const f=await originalDDT(r);if(!['application/pdf','image/jpeg','image/png'].includes(f.mimeType))throw Error('Formato non supportato.');const name=r.name.replace(/\.[^/.]+$/,'')+'_PROT_'+protocol+'_'+r.cdc+'.pdf';let existing=await listFiles(DDTConfig.stamped,name),out;if(existing.length){if(existing.length!==1||existing[0].appProperties?.ddtOriginal!==f.id||existing[0].appProperties?.ddtProtocol!==protocol)throw Error('PDF con questo nome già esistente. Verifica Drive.');out=existing[0];}else{const blob=await stampBytes(await downloadDrive(f.id),f.mimeType,'Prot. n. '+protocol+' - CDC '+r.cdc);await checkSnapshot(r);out=await uploadDrive(blob,{name,parents:[DDTConfig.stamped],appProperties:{ddtOriginal:f.id,ddtProtocol:protocol}});}await checkSnapshot(r);const last=await listDDT();if(last.rows.some(s=>s.row!==r.row&&s.protocol===protocol))throw Error('Protocollo assegnato nel frattempo. PDF conservato, registro non modificato.');const url=out.webViewLink||'https://drive.google.com/file/d/'+out.id+'/view';await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('G'+r.row+':I'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[protocol,'PROTOCOLLATO',url]]}));let warning='';try{if(!f.name.startsWith('✅ '))await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name:'✅ '+f.name}));}catch(e){warning='PDF e registro salvati. L’originale non è stato contrassegnato.';}return{url,warning};};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso in questo browser.');return work();}):work();}
-function parseDDT(text){const t=String(text),n=t.toLowerCase().replace(/\s+/g,' ');const company=n.includes('clintex')?'CLINTEX':n.includes('mondoffice')?'MONDOFFICE':/ecos[iì]/.test(n)?'ECOSI':n.includes('all service')?'ALL SERVICE SRL':n.includes('top store')?'TOP STORE':n.includes('la casalinda')?'LA CASALINDA':'';function pick(regex,group=1){return t.match(regex)?.[group]?.replace(/\s+/g,'')||'';}let ddt='',order='';if(company==='CLINTEX'){const area=t.match(/N\.?\s*DOCUMENTO[\s\S]{0,250}/i)?.[0]||t;ddt=[...area.matchAll(/[\\/]\s*(\d{4,6})\s*[\\/]/g)].map(m=>m[1]).find(s=>!['72100','80100','340'].includes(s))||'';order=pick(/ORD\.?\s*A[\s\S]{0,80}?(\d{5,15})/i);}if(company==='MONDOFFICE'){ddt=pick(/Documento\s+di\s+Trasporto\s+Nr\.?\s*(\d{5,15})/i)||pick(/Documento\s+di\s+Trasporto[\s\S]{0,80}?(\d{5,15})/i);order=pick(/Rif\.?\s*Ordine\s*Cliente[\s\S]{0,80}?(A\s*\d{6,15})/i);if(!order){const x=pick(/Vs\.?\s*riferimento\s*A[\s\S]{0,80}?(\d{5,15})/i);order=x?'A'+x:'';}}if(company==='ECOSI'){ddt=pick(/Numero\s+documento[\s\S]{0,80}?(\d{3,10}\s*\/\s*[A-Z]?)/i);order=pick(/RIF\.?\s*VS\.?\s*ORDINE\s*N\.?[\s:.-]*(\d{6})\b/i);if(!order){const lines=t.split(/\r?\n/);for(let i=0;i<lines.length;i++){if(/rif/i.test(lines[i])&&/vs/i.test(lines[i])&&/ordine/i.test(lines[i])){order=lines.slice(i,i+4).join(' ').match(/\b\d{6}\b/)?.[0]||'';if(order)break;}}}}if(company==='ALL SERVICE SRL'){ddt=pick(/BOLLA\s+ACCOMPAG[\s\S]{0,200}?n\.?\s*(\d+\s*\/\s*\d+)/i)||pick(/\b(\d{1,4}\s*\/\s*\d{3,8})\b/);order=pick(/RIF\.?\s*VS\.?\s*ORDINE\s*N\.?[\s:.-]*(\d{4,15})/i)||pick(/num\s+ordine[\s:.-]*(A?\s*\d{4,15})/i);}if(company==='TOP STORE'){ddt=pick(/Numero[\s\S]{0,80}?(\d{4,10})/i);order=pick(/(A\d{6,15})/i);}if(company==='LA CASALINDA'){ddt=pick(/N\.?\s*Documento[\s\S]{0,100}?(\d{3,10})/i);order=pick(/Rif\.?\s*Ordine\s*Cliente[\s\S]{0,120}?Numero\s+(A\s*\d{8,15})/i)||pick(/Numero\s+(A\s*\d{8,15})/i)||pick(/\b(A\s*\d{8,15})\b/i);}let date=pick(/BOLLA\s+ACCOMPAG[\s\S]{0,200}?n\.?\s*\d+\s*\/\s*\d+\s+del\s+(\d{1,2}\/\d{1,2}\/\d{4})/i)||pick(/Data\s+Documento[\s\S]{0,100}?(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/i)||pick(/Del[\s\S]{0,60}?(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i)||pick(/(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/);date=date.replace(/[.-]/g,'/');const p=date.split('/');if(p[2]?.length===2)date=p[0]+'/'+p[1]+'/20'+p[2];const n153=['viale de pietro','via de pietro','via brenta','v brenta','via birago','v birago','via lanzillotti','via lanzellotti','v lanzillotti','v lanzellotti','via marche','v marche','piazza duomo','p.zza duomo','pzza duomo','pz duomo','via laghi di bolsena','via lago di bolsena','v laghi di bolsena','v lago di bolsena'].some(x=>n.includes(x));const n148=n.includes('baroncino');return{company,ddt,date,cdc:n153&&n148?'':n153?'N153':n148?'N148':'',order:order.toUpperCase()};}
+function parseDDT(text){
+ const t=String(text||'').normalize('NFKC').replace(/[\u00a0\t]+/g,' ');
+ const folded=t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+ const flat=folded.replace(/\s+/g,' ');
+ const suppliers=[
+  ['CLINTEX',/\bCLINTEX\b/],['MONDOFFICE',/\bMOND(?:O\s+)?OFFICE\b/],
+  ['ECOSI',/\bE['’]?\s*COSI\b/],['ALL SERVICE SRL',/\bALL\s+SERVICE\b/],
+  ['TOP STORE',/\bTOP\s+STORE\b/],['LA CASALINDA',/\bLA\s+CASALINDA\b/]
+ ];
+ const company=suppliers.find(([,pattern])=>pattern.test(flat))?.[0]||'';
+ const pick=pattern=>folded.match(pattern)?.[1]?.replace(/\s+/g,'')||'';
+ const header=folded.split(/\r?\n/).slice(0,100).join('\n');
+ let ddt='';
+ switch(company){
+  case 'CLINTEX': {
+   const area=folded.match(/N\.?\s*DOCUMENTO[\s\S]{0,180}/)?.[0]||header;
+   ddt=[...area.matchAll(/[\\/]\s*(\d{4,6})\s*[\\/]/g)].map(m=>m[1]).find(s=>!['72100','80100'].includes(s))||'';
+   break;
+  }
+  case 'MONDOFFICE':
+   ddt=pick(/DOCUMENTO\s+DI\s+TRASPORTO\s*(?:N(?:R|UMERO)?\.?\s*)?[:#-]?\s*(\d{5,15})\b/);
+   break;
+  case 'ECOSI':
+   ddt=pick(/NUMERO\s+DOCUMENTO[\s\S]{0,100}?(\b\d{3,10}\s*\/\s*[A-Z]\b)/);
+   break;
+  case 'ALL SERVICE SRL':
+   ddt=pick(/BOLLA\s+ACCOMPAG[\s\S]{0,150}?\bN\.?\s*(\d+\s*\/\s*\d+)\b/);
+   break;
+  case 'TOP STORE':
+   ddt=pick(/\bNUMERO\s*[:#-]?\s*(\d{4,10})\b/);
+   break;
+  case 'LA CASALINDA':
+   ddt=pick(/\bN\.?\s*DOCUMENTO\s*(?:DATA\s+DOCUMENTO\s*)?[:#-]?\s*(\d{3,10})\b(?![\d./])/);
+   break;
+ }
+ const datePattern='(\\d{1,2}\\s*[./-]\\s*\\d{1,2}\\s*[./-]\\s*(?:\\d{4}|\\d{2}))(?!\\d)';
+ const labelledDate=pick(new RegExp('DATA\\s+(?:DEL\\s+)?DOCUMENTO(?:\\s+DI\\s+TRASPORTO)?[^0-9]{0,70}'+datePattern));
+ const ecosiDate=company==='ECOSI'?pick(new RegExp('DATA\\s+DOCUMENTO\\s+NUMERO\\s+DOCUMENTO[^\\n]*\\n[^\\n]{0,120}?\\b'+datePattern+'\\s+\\d{3,10}\\s*/\\s*[A-Z]\\b')):'';
+ const documentDate=company==='ALL SERVICE SRL'
+  ?pick(new RegExp('BOLLA\\s+ACCOMPAG[\\s\\S]{0,150}?\\bN\\.?\\s*\\d+\\s*[/]\\s*\\d+\\s+DEL\\s*'+datePattern))
+  :company==='TOP STORE'?pick(new RegExp('\\bNUMERO\\s*[:#-]?\\s*\\d{4,10}\\s+DEL\\s*'+datePattern)):'';
+ function validDate(value){
+  if(!value)return '';
+  const parts=value.replace(/\s+/g,'').split(/[./-]/);
+  const [day,month,year]=parts.map(Number);
+  const yyyy=parts[2]?.length===2?2000+year:year;
+  if(yyyy<2000||yyyy>2099)return '';
+  const d=new Date(Date.UTC(yyyy,month-1,day));
+  return d.getUTCFullYear()===yyyy&&d.getUTCMonth()===month-1&&d.getUTCDate()===day
+   ?String(day).padStart(2,'0')+'/'+String(month).padStart(2,'0')+'/'+yyyy:'';
+ }
+ const dates=[...new Set([...header.matchAll(new RegExp('\\b'+datePattern,'g'))].map(m=>validDate(m[1])).filter(Boolean))];
+ const sourceDate=ecosiDate||labelledDate||documentDate;
+ const date=sourceDate?validDate(sourceDate):(dates.length===1?dates[0]:'');
+ const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
+ const orderNumbers=new Set();
+ for(const label of folded.matchAll(labels)){
+  const tail=folded.slice(label.index+label[0].length);
+  const value=tail.match(/^\s*[:#.-]?\s*(?:N(?:R|UMERO)?\.?\s*)?[:#.-]?\s*(A?\s*[/.-]?\s*20\d{2}\s*[/.-]?\s*\d{6}|A?\s*\d{6})(?![A-Z0-9/]|\s*[/.-]\s*\d)/);
+  if(!value)continue;
+  const digits=value[1].replace(/\D/g,'');
+  orderNumbers.add(digits.length===10?'A'+digits:digits);
+ }
+ if(!orderNumbers.size&&company==='TOP STORE'&&!new RegExp(labels.source).test(folded)){
+  for(const m of folded.matchAll(/\bA\s*(20\d{8})\b/g))orderNumbers.add('A'+m[1]);
+ }
+ const fullReferences=[...orderNumbers].filter(value=>value.startsWith('A'));
+ for(const value of fullReferences)orderNumbers.delete(value.slice(-6));
+ const order=orderNumbers.size===1?[...orderNumbers][0]:'';
+ const explicit=[...new Set([...flat.matchAll(/\b(?:CDC|CENTRO DI COSTO)\s*[:.-]?\s*(N\d{3})\b/g)].map(m=>m[1]))];
+ const delivery=flat.match(/\b(?:DESTINAZIONE DI CONSEGNA|INDIRIZZO DI CONSEGNA|CONSEGNA PRESSO|DESTINAZIONE MERCE)\b\s*[:.-]?\s*(.{1,280})/)?.[1]||'';
+ function siteCodes(value){
+  const codes=[];
+  if(/\b(?:VIA(?:LE)?\s+DE PIETRO|V(?:IA)?\.?\s+(?:BRENTA|BIRAGO|LANZ[IE]LLOTTI|MARCHE|LAG(?:O|HI) DI BOLSENA)|(?:PIAZZA|P\.?ZZA|PZ)\s+DUOMO)\b/.test(value))codes.push('N153');
+  if(/\bBARONCINO\b/.test(value))codes.push('N148');
+  if(/\bV(?:IA)?\.?\s+MONTERONI\b/.test(value))codes.push('N154');
+  return codes;
+ }
+ const codes=explicit.length?explicit:siteCodes(delivery);
+ if(!codes.length)codes.push(...siteCodes(flat));
+ const cdc=codes.length===1?codes[0]:'';
+ return{company,ddt,date,cdc,order};
+}
+
+async function readDDTFields(file){
+ let native=null;
+ if(file.type==='application/pdf'&&typeof DDTPDFViewer!=='undefined'){
+  try {
+   const text=await DDTPDFViewer.extractText(await file.arrayBuffer());
+   if(text.trim())native=parseDDT(text);
+  } catch {}
+  if(native&&Object.values(native).every(Boolean))return native;
+ }
+ try {
+  const text=await ocrDDT(file);
+  if(text.trim())return parseDDT(text);
+  if(native)return native;
+  return parseDDT('');
+ } catch(error){
+  if(native&&Object.values(native).some(Boolean))return native;
+  throw error;
+ }
+}
+function ddtReadStatus(fields){return Object.values(fields).every(Boolean)?'DA PROTOCOLLARE':'OCR DA VERIFICARE';}
 if(typeof module!=='undefined')module.exports={parseDDT,toRecord,recordValues};
 
 async function folderDDTFiles(){const all=[];let token='';do{const q="'"+literal(DDTConfig.originals)+"' in parents and trashed=false";const p=await googleRequest(driveURL+'?q='+encodeURIComponent(q)+'&pageSize=1000&fields=nextPageToken,files(id,name,mimeType)'+(token?'&pageToken='+encodeURIComponent(token):''));all.push(...(p.files||[]));token=p.nextPageToken||'';}while(token);return all;}
-async function scanDDTFolder(progress=()=>{},shouldStop=()=>false){const work=async()=>{const registry=await listDDT(),files=await folderDDTFiles(),names=new Set(registry.rows.map(r=>r.name));const summary={registered:0,skipped:0,errors:[],stopped:false};for(let i=0;i<files.length;i++){if(shouldStop()){summary.stopped=true;break;}const f=files[i];if(f.name.startsWith('✅ ')||names.has(f.name)||!['application/pdf','image/jpeg','image/png'].includes(f.mimeType)){summary.skipped++;continue;}progress({current:i+1,total:files.length,name:f.name});try{const text=await ocrDDT(new Blob([await downloadDrive(f.id)],{type:f.mimeType}));const fields=parseDDT(text);let name=f.name;if(fields.company&&fields.ddt){const ext=f.name.match(/\.[^/.]+$/)?.[0]||(f.mimeType==='application/pdf'?'.pdf':f.mimeType==='image/png'?'.png':'.jpg');name=(fields.company+'_DDT_'+fields.ddt+ext).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').toUpperCase();}
-const fresh=await listDDT();if(fresh.rows.some(r=>r.name===f.name||r.name===name)){summary.skipped++;names.add(f.name);names.add(name);continue;}const same=await listFiles(DDTConfig.originals,name);if(same.some(x=>x.id!==f.id))throw Error('Nome DDT già presente nella cartella: controlla il possibile duplicato.');if(name!==f.name)await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name}));await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A:I')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',jsonOptions('POST',{values:[[name,fields.company,fields.ddt,fields.date,fields.cdc,fields.order,'','DA PROTOCOLLARE','']]}));names.add(name);summary.registered++;
+async function scanDDTFolder(progress=()=>{},shouldStop=()=>false){const work=async()=>{const registry=await listDDT(),files=await folderDDTFiles(),names=new Set(registry.rows.map(r=>r.name));const summary={registered:0,skipped:0,errors:[],stopped:false};for(let i=0;i<files.length;i++){if(shouldStop()){summary.stopped=true;break;}const f=files[i];if(f.name.startsWith('✅ ')||names.has(f.name)||!['application/pdf','image/jpeg','image/png'].includes(f.mimeType)){summary.skipped++;continue;}progress({current:i+1,total:files.length,name:f.name});try{const fields=await readDDTFields(new Blob([await downloadDrive(f.id)],{type:f.mimeType}));let name=f.name;if(fields.company&&fields.ddt){const ext=f.name.match(/\.[^/.]+$/)?.[0]||(f.mimeType==='application/pdf'?'.pdf':f.mimeType==='image/png'?'.png':'.jpg');name=(fields.company+'_DDT_'+fields.ddt+ext).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').toUpperCase();}
+const fresh=await listDDT();if(fresh.rows.some(r=>r.name===f.name||r.name===name)){summary.skipped++;names.add(f.name);names.add(name);continue;}const same=await listFiles(DDTConfig.originals,name);if(same.some(x=>x.id!==f.id))throw Error('Nome DDT già presente nella cartella: controlla il possibile duplicato.');if(name!==f.name)await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name}));await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A:I')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',jsonOptions('POST',{values:[[name,fields.company,fields.ddt,fields.date,fields.cdc,fields.order,'',ddtReadStatus(fields),'']]}));names.add(name);summary.registered++;
 }catch(e){summary.errors.push({name:f.name,error:e.message});if(!hasSession()){summary.stopped=true;break;}}}return summary;};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso in questo browser.');return work();}):work();}
 async function saveDDTProtocolOnly(r,value){const p=String(value).trim();if(!/^\d{6,20}$/.test(p))throw Error('Inserisci il protocollo numerico da 6 a 20 cifre.');const work=async()=>{await checkSnapshot(r);if(r.status.toUpperCase()==='PROTOCOLLATO'||r.url)throw Error('Documento già protocollato.');const all=await listDDT();if(all.rows.some(x=>x.row!==r.row&&x.protocol===p))throw Error('Protocollo già assegnato a un altro DDT.');await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('G'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[p]]}));};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();}
 async function protocolAllDDT(progress=()=>{},shouldStop=()=>false){const list=await listDDT(),pending=list.rows.filter(r=>r.name&&r.protocol&&r.status.toUpperCase()!=='PROTOCOLLATO');const report={done:0,errors:[],total:pending.length,stopped:false};for(let i=0;i<pending.length;i++){if(shouldStop()){report.stopped=true;break;}const r=pending[i];progress({current:i+1,total:pending.length,name:r.name});try{const out=await protocolDDT(r,r.protocol);report.done++;if(out.warning)report.errors.push({name:r.name,error:out.warning});}catch(e){report.errors.push({name:r.name,error:e.message});if(!hasSession()){report.stopped=true;break;}}}return report;}

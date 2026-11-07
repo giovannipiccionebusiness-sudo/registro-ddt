@@ -144,9 +144,6 @@
  box.querySelector('button').onclick=()=>{if(match.order)openOrder(match.order.id);else{closeDetail();nav('orders');}};
  $('preview').before(box);
  }
- const baseParse=parseDDT;parseDDT=function(text){const r=baseParse(text);const areas=String(text).match(/(?:RIF\.?\s*VS\.?\s*ORDINE(?:\s*N\.?)?|Rif\.?\s*Ordine\s*Cliente|Vs\.?\s*riferimento|ORD\.?\s*A|Ordine\s+Dussmann)[\s\S]{0,90}/gi)||[];
- for(const area of areas){const full=area.match(/\bA\s*[/ ]?\s*20\d{2}\s*[/ ]?\s*\d{6}\b/i);if(full){r.order=C.orderRef(full[0]).full;break;}}
- return r;};
  function releasePDF(){if(pdfURL)URL.revokeObjectURL(pdfURL);pdfURL='';}
  dialog.addEventListener('close',()=>{releasePDF();$('orderPDF').innerHTML='';});
  $('closeOrder').onclick=()=>dialog.close();
