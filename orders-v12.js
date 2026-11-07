@@ -158,6 +158,11 @@
  if(!dialog.open)dialog.showModal();
  }
  $('orderList').onclick=e=>{const button=e.target.closest('[data-order]');if(button)openOrder(button.dataset.order);};
+ $('verifyOrderQuantities').onclick=()=>{
+  if(!selectedOrder)return;
+  const order=OrdersState.orders.find(o=>o.id===selectedOrder.id);
+  if(order)OrderQuantities.open(order,related(order));
+ };
  $('orderRelated').onclick=e=>{const button=e.target.closest('[data-related-ddt]');if(button){dialog.close();openDetail(Number(button.dataset.relatedDdt));}};
  $('saveOrder').onclick=async()=>{if(!selectedOrder)return;const values=Object.fromEntries([...dialog.querySelectorAll('[data-order-field]')].map(el=>[el.dataset.orderField,el.value]));
  values.verified=$('orderVerified').checked;

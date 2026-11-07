@@ -69,5 +69,28 @@ var DDTPDFViewer=(()=>{
    if(current===s&&typeof ResizeObserver!=='undefined'){let width=ui.viewport.clientWidth;s.resize=new ResizeObserver(()=>{const next=ui.viewport.clientWidth;if(next!==width){width=next;render();}});s.resize.observe(ui.viewport);}
   }catch(e){if(current===s)ui.status.textContent=s.url?'Impossibile visualizzare il PDF. Puoi usare Scarica PDF.':'Documento non caricato: '+e.message;}
  }
- return {open,close(){if(dialog?.open)dialog.close();}};
+ async function extractText(bytes){
+  const lib=await library();
+  const loading=lib.getDocument({data:new Uint8Array(bytes),isEvalSupported:false,cMapUrl:base+'cmaps/',cMapPacked:true,standardFontDataUrl:base+'standard_fonts/'});
+  try {
+   const doc=await loading.promise;
+   const pages=[];
+   for(let n=1;n<=doc.numPages;n++){
+    const page=await doc.getPage(n);
+    const content=await page.getTextContent();
+    const items=content.items.filter(item=>item.str?.trim()&&item.transform)
+     .sort((a,b)=>b.transform[5]-a.transform[5]);
+    const lines=[];
+    for(const item of items){
+     const last=lines.at(-1);
+     if(last&&Math.abs(last.y-item.transform[5])<=2)last.items.push(item);
+     else lines.push({y:item.transform[5],items:[item]});
+    }
+    pages.push(lines.map(line=>line.items.sort((a,b)=>a.transform[4]-b.transform[4]).map(item=>item.str.trim()).join(' ')).join('\n'));
+    page.cleanup();
+   }
+   return pages.join('\n');
+  } finally {await loading.destroy();}
+ }
+ return {open,extractText,close(){if(dialog?.open)dialog.close();}};
 })();
