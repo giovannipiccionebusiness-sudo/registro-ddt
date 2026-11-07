@@ -143,17 +143,6 @@
  box.innerHTML=match.order?'<div><b>Ordine collegato: '+E(match.order.number)+'</b>'+E(match.order.site)+' · '+(match.manual?'collegamento manuale':'riconosciuto automaticamente')+'</div><button type="button" class="btn">Consulta ordine</button>':'<div><b>Ordine non collegato</b>'+E(!OrdersState.loaded?'Apri Ordini e aggiorna il registro.':match.warning)+'. Puoi collegarlo dalla scheda dell’ordine.</div><button type="button" class="btn">Vai agli ordini</button>';
  box.querySelector('button').onclick=()=>{if(match.order)openOrder(match.order.id);else{closeDetail();nav('orders');}};
  $('preview').before(box);
- if(match.order){
-  const status=document.createElement('p');
-  status.className='qty-auto-status';
-  status.setAttribute('role','status');
-  box.firstElementChild.append(status);
-  const verify=document.createElement('button');
-  verify.type='button';verify.className='btn';verify.textContent='Verifica quantità';
-  verify.onclick=()=>OrderQuantities.open(match.order,related(match.order));
-  box.append(verify);
-  OrderQuantities.showAutomatic(match.order,related(match.order),status);
- }
  }
  const baseParse=parseDDT;parseDDT=function(text){const r=baseParse(text);const areas=String(text).match(/(?:RIF\.?\s*VS\.?\s*ORDINE(?:\s*N\.?)?|Rif\.?\s*Ordine\s*Cliente|Vs\.?\s*riferimento|ORD\.?\s*A|Ordine\s+Dussmann)[\s\S]{0,90}/gi)||[];
  for(const area of areas){const full=area.match(/\bA\s*[/ ]?\s*20\d{2}\s*[/ ]?\s*\d{6}\b/i);if(full){r.order=C.orderRef(full[0]).full;break;}}
@@ -168,19 +157,9 @@
  $('orderRelated').innerHTML=related(o).map(r=>'<button class="btn" data-related-ddt="'+r.row+'">DDT '+E(r.ddt)+' · '+E(r.company)+' · '+E(r.date)+' · '+E(r.status)+'</button>').join('')||'<p>Nessun DDT collegato: verifica se la merce deve ancora arrivare oppure richiedi il DDT al fornitore.</p>';
  $('orderDDTSelect').innerHTML='<option value="">Scegli un DDT dal registro…</option>'+data.map(r=>'<option value="'+r.row+'">'+E(r.company)+' · '+E(r.ddt)+' · '+E(r.date)+' · '+E(r.cdc)+' · riga '+r.row+'</option>').join('');
  $('orderAddress').textContent='Consegna: '+(C.deliveryAddress(o.address)||o.address||'Indirizzo non rilevato');$('openOrderPDF').disabled=!o.fileId;
- const status=document.createElement('p');
- status.className='qty-auto-status';
- status.setAttribute('role','status');
- $('orderQuantityStatus').replaceChildren(status);
  if(!dialog.open)dialog.showModal();
- OrderQuantities.showAutomatic(o,related(o),status);
  }
  $('orderList').onclick=e=>{const button=e.target.closest('[data-order]');if(button)openOrder(button.dataset.order);};
- $('verifyOrderQuantities').onclick=()=>{
-  if(!selectedOrder)return;
-  const order=OrdersState.orders.find(o=>o.id===selectedOrder.id);
-  if(order)OrderQuantities.open(order,related(order));
- };
  $('orderRelated').onclick=e=>{const button=e.target.closest('[data-related-ddt]');if(button){dialog.close();openDetail(Number(button.dataset.relatedDdt));}};
  $('saveOrder').onclick=async()=>{if(!selectedOrder)return;const values=Object.fromEntries([...dialog.querySelectorAll('[data-order-field]')].map(el=>[el.dataset.orderField,el.value]));
  values.verified=$('orderVerified').checked;
