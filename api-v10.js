@@ -105,27 +105,49 @@ function parseDDT(text){
  const order=orderNumbers.size===1?[...orderNumbers][0]:'';
  const explicit=[...new Set([...flat.matchAll(/\b(?:CDC|CENTRO DI COSTO)\s*[:.-]?\s*(N\d{3})\b/g)].map(m=>m[1]))];
  const delivery=flat.match(/\b(?:DESTINAZIONE DI CONSEGNA|INDIRIZZO DI CONSEGNA|CONSEGNA PRESSO|DESTINAZIONE MERCE)\b\s*[:.-]?\s*(.{1,280})/)?.[1]||'';
+ const dePietro=/\bV(?:IA(?:LE)?|\.?LE)?\.?\s+DE\s+PIETRO\b/;
  function siteCodes(value){
   const codes=[];
-  if(/\b(?:VIA(?:LE)?\s+DE PIETRO|V(?:IA)?\.?\s+(?:BRENTA|BIRAGO|LANZ[IE]LLOTTI|MARCHE|LAG(?:O|HI) DI BOLSENA)|(?:PIAZZA|P\.?ZZA|PZ)\s+DUOMO)\b/.test(value))codes.push('N153');
+  if(dePietro.test(value)||/\b(?:V(?:IA)?\.?\s+(?:BRENTA|BIRAGO|LANZ[IE]LLOTTI|MARCHE|LAG(?:O|HI) DI BOLSENA)|(?:PIAZZA|P\.?ZZA|PZ)\s+DUOMO)\b/.test(value))codes.push('N153');
   if(/\bBARONCINO\b/.test(value))codes.push('N148');
   if(/\bV(?:IA)?\.?\s+MONTERONI\b/.test(value))codes.push('N154');
   return codes;
  }
- const codes=explicit.length?explicit:siteCodes(delivery);
- if(!codes.length)codes.push(...siteCodes(flat));
- const cdc=codes.length===1?codes[0]:'';
- return{company,ddt,date,cdc,order};
+ const address=siteCodes(delivery).length?delivery:flat;
+ const cdcFromOrder=company==='ECOSI'&&!explicit.length&&dePietro.test(address);
+ const codes=explicit.length?explicit:siteCodes(address);
+ const cdc=!cdcFromOrder&&codes.length===1?codes[0]:'';
+ return{company,ddt,date,cdc,order,cdcFromOrder};
 }
 
 async function readDDTFields(file){
+ const {cdcFromOrder,...fields}=await readDDTDocumentFields(file);
+ if(!cdcFromOrder||!fields.order)return fields;
+ try{
+  const reference=OrdersCore.orderRef(fields.order);
+  if(!reference)return fields;
+  const rows=await ordersRead('Ordini','B2:H');
+  const matches=rows.filter(([number,company,,,,,status])=>{
+   const order=OrdersCore.orderRef(number);
+   return order?.full&&OrdersCore.company(company)==='ECOSI'&&OrdersCore.norm(status)!=='ANNULLATO'&&
+    (reference.full?order.full===reference.full:order.suffix===reference.suffix);
+  });
+  const cdc=OrdersCore.norm(matches.length===1?matches[0][3]:'');
+  if(cdc==='N102'||cdc==='N153')fields.cdc=cdc;
+ }catch(error){
+  console.warn('Centro di costo non recuperato dagli ordini:',error.message);
+ }
+ return fields;
+}
+
+async function readDDTDocumentFields(file){
  let native=null;
  if(file.type==='application/pdf'&&typeof DDTPDFViewer!=='undefined'){
   try {
    const text=await DDTPDFViewer.extractText(await file.arrayBuffer());
    if(text.trim())native=parseDDT(text);
   } catch {}
-  if(native&&Object.values(native).every(Boolean))return native;
+  if(native&&native.company&&native.ddt&&native.date&&native.order&&(native.cdc||native.cdcFromOrder))return native;
  }
  try {
   const text=await ocrDDT(file);
@@ -133,7 +155,7 @@ async function readDDTFields(file){
   if(native)return native;
   return parseDDT('');
  } catch(error){
-  if(native&&Object.values(native).some(Boolean))return native;
+  if(native&&(native.company||native.ddt||native.date||native.cdc||native.order))return native;
   throw error;
  }
 }
