@@ -373,17 +373,21 @@
  $('orderWarnings').textContent=o.warnings||'Nessuna anomalia di lettura segnalata.';$('orderVerified').checked=false;
  $('orderRelated').innerHTML=related(o).map(r=>'<button class="btn" data-related-ddt="'+r.row+'">DDT '+E(r.ddt)+' · '+E(r.company)+' · '+E(r.date)+' · '+E(r.status)+'</button>').join('')||'<p>Nessun DDT collegato: verifica se la merce deve ancora arrivare oppure richiedi il DDT al fornitore.</p>';
  $('orderDDTSelect').innerHTML='<option value="">Scegli un DDT dal registro…</option>'+data.map(r=>'<option value="'+r.row+'">'+E(r.company)+' · '+E(r.ddt)+' · '+E(r.date)+' · '+E(r.cdc)+' · riga '+r.row+'</option>').join('');
- const reminder=$('orderDdtReminder');
+ const reminder=$('orderDdtReminder'),push=$('orderDdtPush');
  const canRemind=o.fileId&&o.site&&C.orderRef(o.number)?.full&&!o.warnings&&o.manual!=='ANNULLATO'&&!related(o).length;
  reminder.hidden=!canRemind;
+ push.hidden=!canRemind;
  if(canRemind){
   const url=new URL('https://giovannipiccionebusiness-sudo.github.io/magazzini-dussmann/');
+  url.searchParams.set('sollecita-ddt',o.id);
+  push.href=url.href;
+  url.searchParams.delete('sollecita-ddt');
   url.searchParams.set('ordine-ddt',o.id);
   const message=['Ciao, puoi verificare la consegna dell’ordine '+o.number+' ('+o.company+') per '+o.site+'?',
     'Apri il PDF dell’ordine e, se la merce è arrivata, carica il DDT da Magazzini Dussmann.',
     'Se il DDT manca o la merce non è ancora arrivata, contatta il responsabile.',url.href].join('\n');
   reminder.href='https://wa.me/?text='+encodeURIComponent(message);
- }else reminder.removeAttribute('href');
+ }else{reminder.removeAttribute('href');push.removeAttribute('href');}
  $('orderAddress').textContent='Consegna: '+(C.deliveryAddress(o.address)||o.address||'Indirizzo non rilevato');$('openOrderPDF').disabled=!o.fileId;
  if(!dialog.open)dialog.showModal();
  }
