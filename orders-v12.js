@@ -383,9 +383,13 @@
   push.href=url.href;
   url.searchParams.delete('sollecita-ddt');
   url.searchParams.set('ordine-ddt',o.id);
-  const message=['Ciao, puoi verificare la consegna dell’ordine '+o.number+' ('+o.company+') per '+o.site+'?',
-    'Apri il PDF dell’ordine e, se la merce è arrivata, carica il DDT da Magazzini Dussmann.',
-    'Se il DDT manca o la merce non è ancora arrivata, contatta il responsabile.',url.href].join('\n');
+  const message=['📦 *MAGAZZINI DUSSMANN*','*Verifica consegna e caricamento DDT*','',
+    '📍 *Sede:* '+o.site,'📄 *Ordine:* '+o.number,'🏢 *Fornitore:* '+o.company,'',
+    'Ciao! Puoi verificare se è arrivata la merce di questo ordine?',
+    '✅ *Merce arrivata:* carica il DDT nell’app.',
+    '⚠️ *DDT mancante o merce non arrivata:* contatta il responsabile.','',
+    '👇 *Apri il PDF dell’ordine e carica il DDT*',url.href,
+    '', 'Accedi con il tuo account Magazzini Dussmann.'].join('\n');
   reminder.href='https://wa.me/?text='+encodeURIComponent(message);
  }else{reminder.removeAttribute('href');push.removeAttribute('href');}
  $('orderAddress').textContent='Consegna: '+(C.deliveryAddress(o.address)||o.address||'Indirizzo non rilevato');$('openOrderPDF').disabled=!o.fileId;
