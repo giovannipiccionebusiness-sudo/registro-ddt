@@ -51,25 +51,73 @@ function syncGoogleLogin(){
 syncGoogleLogin();
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncGoogleLogin();});
 $('sheetId').value=DDTConfig.sheetId;$('originalFolder').value=DDTConfig.originals;$('stampedFolder').value=DDTConfig.stamped;$('openSheet').onclick=()=>{if(!DDTConfig.sheetId)return nav('help');window.open('https://docs.google.com/spreadsheets/d/'+encodeURIComponent(DDTConfig.sheetId)+'/edit','_blank','noopener')};$('clientId').value=oauthClientId();$('saveConfig').onclick=()=>{const v=$('clientId').value.trim();if(!/^\d+-[\w-]+\.apps\.googleusercontent\.com$/.test(v))return toast('Inserisci il Client ID OAuth Google completo.');const values={clientId:v,sheetId:$('sheetId').value.trim(),originals:$('originalFolder').value.trim(),stamped:$('stampedFolder').value.trim(),tab:'Foglio1'};if(![values.sheetId,values.originals,values.stamped].every(x=>/^[a-zA-Z0-9_-]{10,}$/.test(x)))return toast('Inserisci gli ID del foglio e delle due cartelle.');Object.assign(DDTConfig,values);localStorage.setItem('ddt-google-config',JSON.stringify(values));localStorage.setItem('ddt-oauth-client-id',v);toast('Configurazione salvata in questo browser. Premi Accedi con Google.');nav('all')};
-function showDuplicateDDTs(records){
+async function previewDuplicateDDT(file){
+ try{
+  await DDTPDFViewer.open({
+   filename:file.name.replace(/\.[^.]+$/,'')+'.pdf',
+   title:'Copia da verificare · '+file.name,
+   load:async()=>{
+    const bytes=await downloadDrive(file.id);
+    if(file.mimeType==='application/pdf')return bytes;
+    if(!window.PDFLib)throw Error('Aggiorna l’app per visualizzare l’immagine.');
+    const pdf=await PDFLib.PDFDocument.create();
+    const image=file.mimeType==='image/png'?await pdf.embedPng(bytes):await pdf.embedJpg(bytes);
+    const page=pdf.addPage([image.width,image.height]);
+    page.drawImage(image,{x:0,y:0,width:image.width,height:image.height});
+    return pdf.save();
+   }
+  });
+ }catch(error){toast(error.message);}
+}
+function showDuplicateDDTs(items){
  const list=$('duplicateDDTs');
  list.replaceChildren();
- const unique=[...new Map(records.map(record=>[record.row,record])).values()];
- list.hidden=!unique.length;
- if(!unique.length)return;
+ const entries=[...new Map(items.map(item=>[item.file?.id||'row-'+item.row,item])).values()];
+ list.hidden=!entries.length;
+ if(!entries.length)return;
  $('batchPanel').classList.remove('hidden');
  const title=document.createElement('strong');
- title.textContent='Possibili DDT duplicati. Controlla i documenti già registrati.';
+ title.textContent='Possibili copie di DDT già registrati';
  list.append(title);
- for(const record of unique){
-  const button=document.createElement('button');
-  button.type='button';button.className='btn';
-  button.textContent=[record.company,record.ddt,record.date,record.cdc,record.protocol?'Prot. '+record.protocol:''].filter(Boolean).join(' · ')||record.name;
-  button.onclick=()=>{
-   const existing=data.find(row=>row.name===record.name&&row.ddt===record.ddt&&row.company===record.company);
-   if(existing)openDetail(existing.row);else toast('Documento non più presente nel registro. Aggiorna e riprova.');
-  };
-  list.append(button);
+ for(const entry of entries){
+  const records=entry.records||[entry];
+  const card=document.createElement('div');card.className='duplicate-card';
+  if(entry.file){
+   const name=document.createElement('p');
+   name.textContent='File trovato nella cartella · '+entry.file.name;
+   card.append(name);
+  }
+  for(const record of records){
+   const button=document.createElement('button');button.type='button';button.className='btn';
+   button.textContent='Apri DDT registrato · '+[record.company,record.ddt,record.date,record.cdc,record.protocol?'Prot. '+record.protocol:''].filter(Boolean).join(' · ');
+   button.onclick=()=>{
+    const existing=data.find(row=>row.name===record.name&&row.ddt===record.ddt&&row.company===record.company);
+    if(existing)openDetail(existing.row);else toast('Documento non più presente nel registro. Aggiorna e riprova.');
+   };
+   card.append(button);
+  }
+  if(entry.file){
+   const preview=document.createElement('button');preview.type='button';preview.className='btn';
+   preview.textContent='Vedi copia in più';preview.onclick=()=>previewDuplicateDDT(entry.file);
+   const remove=document.createElement('button');remove.type='button';remove.className='btn';
+   remove.textContent='Elimina copia in più';
+   const status=document.createElement('p');status.setAttribute('role','status');
+   remove.onclick=async()=>{
+    if(folderBatchBusy)return toast('Attendi il completamento dell’operazione in corso.');
+    if(!window.confirm('Spostare nel Cestino Drive questa copia?\n\n'+entry.file.name+'\n\nIl DDT registrato resta disponibile.'))return;
+    remove.disabled=true;preview.disabled=true;
+    status.textContent='Controllo della copia…';
+    try{
+     await trashDuplicateDDT(entry);
+     card.remove();
+     list.hidden=!list.querySelector('.duplicate-card');
+     toast('Copia spostata nel Cestino Drive.');
+    }catch(error){status.textContent=error.message;}
+    finally{remove.disabled=false;preview.disabled=false;}
+   };
+   card.append(preview,remove,status);
+  }
+  list.append(card);
  }
 }
 

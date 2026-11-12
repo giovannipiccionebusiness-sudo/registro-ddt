@@ -182,18 +182,50 @@ async function readDDTDocumentFields(file){
 function ddtReadStatus(fields){return Object.values(fields).every(Boolean)?'DA PROTOCOLLARE':'OCR DA VERIFICARE';}
 if(typeof module!=='undefined')module.exports={parseDDT,toRecord,recordValues};
 
-async function folderDDTFiles(){const all=[];let token='';do{const q="'"+literal(DDTConfig.originals)+"' in parents and trashed=false";const p=await googleRequest(driveURL+'?q='+encodeURIComponent(q)+'&pageSize=1000&fields=nextPageToken,files(id,name,mimeType)'+(token?'&pageToken='+encodeURIComponent(token):''));all.push(...(p.files||[]));token=p.nextPageToken||'';}while(token);return all;}
+async function folderDDTFiles(){const all=[];let token='';do{const q="'"+literal(DDTConfig.originals)+"' in parents and trashed=false";const p=await googleRequest(driveURL+'?q='+encodeURIComponent(q)+'&pageSize=1000&fields=nextPageToken,files(id,name,mimeType,modifiedTime)'+(token?'&pageToken='+encodeURIComponent(token):''));all.push(...(p.files||[]));token=p.nextPageToken||'';}while(token);return all;}
 async function scanDDTFolder(progress=()=>{},shouldStop=()=>false){const work=async()=>{const registry=await listDDT(),files=await folderDDTFiles(),names=new Set(registry.rows.map(r=>r.name));const summary={registered:0,skipped:0,duplicates:[],errors:[],stopped:false};for(let i=0;i<files.length;i++){if(shouldStop()){summary.stopped=true;break;}const f=files[i];if(f.name.startsWith('✅ ')||names.has(f.name)||!['application/pdf','image/jpeg','image/png'].includes(f.mimeType)){summary.skipped++;continue;}progress({current:i+1,total:files.length,name:f.name});try{const fields=await readDDTFields(new Blob([await downloadDrive(f.id)],{type:f.mimeType}));let name=f.name;if(fields.company&&fields.ddt){const ext=f.name.match(/\.[^/.]+$/)?.[0]||(f.mimeType==='application/pdf'?'.pdf':f.mimeType==='image/png'?'.png':'.jpg');name=(fields.company+'_DDT_'+fields.ddt+ext).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').toUpperCase();}
 const fresh=await listDDT();
 const duplicates=duplicateDDTRows(fields,fresh.rows);
-if(duplicates.length){summary.duplicates.push(...duplicates);continue;}
+if(duplicates.length){summary.duplicates.push({file:f,fields,records:duplicates});continue;}
 const nameMatches=duplicateDDTRows({name},fresh.rows);
 if(nameMatches.length){
- if(!fields.company||!fields.ddt||!fields.date||nameMatches.some(r=>!r.company||!r.ddt||!r.date)){summary.duplicates.push(...nameMatches);continue;}
+ if(!fields.company||!fields.ddt||!fields.date||nameMatches.some(r=>!r.company||!r.ddt||!r.date)){summary.duplicates.push({file:f,fields,records:nameMatches});continue;}
  const ext=name.match(/\.[^.]+$/)?.[0]||'';
  name=name.slice(0,name.length-ext.length)+'_'+f.id.slice(-8)+ext;
 }const same=await listFiles(DDTConfig.originals,name);if(same.some(x=>x.id!==f.id))throw Error('Nome DDT già presente nella cartella: controlla il possibile duplicato.');if(name!==f.name)await googleRequest(driveURL+'/'+f.id,jsonOptions('PATCH',{name}));await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('A:I')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',jsonOptions('POST',{values:[[name,fields.company,fields.ddt,fields.date,fields.cdc,fields.order,'',ddtReadStatus(fields),'']]}));names.add(name);summary.registered++;
 }catch(e){summary.errors.push({name:f.name,error:e.message});if(!hasSession()){summary.stopped=true;break;}}}return summary;};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso in questo browser.');return work();}):work();}
+async function trashDuplicateDDT(entry){
+ const work=async()=>{
+  if(!entry.file?.id||!entry.fields)throw Error('Rileggi la cartella DDT prima di eliminare la copia.');
+  const file=entry.file;
+  const metadata=await googleRequest(driveURL+'/'+encodeURIComponent(file.id)+'?fields=id,name,mimeType,parents,trashed,modifiedTime');
+  if(metadata.trashed)return;
+  if(metadata.name!==file.name||!file.modifiedTime||metadata.modifiedTime!==file.modifiedTime||
+   !metadata.parents?.includes(DDTConfig.originals)||
+   !['application/pdf','image/jpeg','image/png'].includes(metadata.mimeType))
+   throw Error('Il file è cambiato. Premi Leggi DDT e controlla di nuovo.');
+  const registry=await listDDT();
+  const filename=name=>String(name||'').replace(/^✅\s*/,'').trim().toLowerCase();
+  if(registry.rows.some(record=>filename(record.name)===filename(metadata.name)))
+   throw Error('Questo file è un originale registrato. Controlla le due copie prima di procedere.');
+  const matches=duplicateDDTRows(entry.fields,registry.rows);
+  if(!matches.length)throw Error('Non risulta più un DDT corrispondente nel registro. Premi Leggi DDT.');
+  const registered=await originalDDT(matches[0]);
+  if(registered.id===file.id)throw Error('Questo è il file originale del DDT registrato.');
+  await checkSnapshot(matches[0]);
+  const last=await googleRequest(driveURL+'/'+encodeURIComponent(file.id)+'?fields=name,modifiedTime,parents,trashed');
+  if(last.trashed)return;
+  if(last.name!==metadata.name||last.modifiedTime!==metadata.modifiedTime||!last.parents?.includes(DDTConfig.originals))
+   throw Error('Il file è cambiato durante il controllo. Premi Leggi DDT.');
+  await googleRequest(driveURL+'/'+encodeURIComponent(file.id),jsonOptions('PATCH',{trashed:true}));
+  const result=await googleRequest(driveURL+'/'+encodeURIComponent(file.id)+'?fields=trashed');
+  if(!result.trashed)throw Error('Spostamento nel Cestino non confermato. Aggiorna prima di riprovare.');
+ };
+ return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},lock=>{
+  if(!lock)throw Error('Un’altra operazione è in corso.');return work();
+ }):work();
+}
+
 async function saveDDTProtocolOnly(r,value){const p=String(value).trim();if(!/^\d{6,20}$/.test(p))throw Error('Inserisci il protocollo numerico da 6 a 20 cifre.');const work=async()=>{await checkSnapshot(r);if(r.status.toUpperCase()==='PROTOCOLLATO'||r.url)throw Error('Documento già protocollato.');const all=await listDDT();if(all.rows.some(x=>x.row!==r.row&&x.protocol===p))throw Error('Protocollo già assegnato a un altro DDT.');await googleRequest(sheetURL+DDTConfig.sheetId+'/values/'+sheetRange('G'+r.row)+'?valueInputOption=RAW',jsonOptions('PUT',{values:[[p]]}));};return navigator.locks?navigator.locks.request('ddt-write-'+DDTConfig.sheetId,{ifAvailable:true},l=>{if(!l)throw Error('Un’altra operazione è in corso.');return work();}):work();}
 async function protocolAllDDT(progress=()=>{},shouldStop=()=>false){const list=await listDDT(),pending=list.rows.filter(r=>r.name&&r.protocol&&r.status.toUpperCase()!=='PROTOCOLLATO');const report={done:0,errors:[],total:pending.length,stopped:false};for(let i=0;i<pending.length;i++){if(shouldStop()){report.stopped=true;break;}const r=pending[i];progress({current:i+1,total:pending.length,name:r.name});try{const out=await protocolDDT(r,r.protocol);report.done++;if(out.warning)report.errors.push({name:r.name,error:out.warning});}catch(e){report.errors.push({name:r.name,error:e.message});if(!hasSession()){report.stopped=true;break;}}}return report;}
 
