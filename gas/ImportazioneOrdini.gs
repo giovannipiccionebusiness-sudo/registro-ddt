@@ -27,11 +27,15 @@ var OrdersCore=(()=>{
  if(ref?.full&&subjectRef&&orderRef(subjectRef[0])?.full!==ref.full)warnings.push('Numero ordine diverso dall’oggetto email');
  const supplierBlock=(t.match(/Spett\.?le([\s\S]*?)(?:VIA(?:LE)?\b|CORSO\b|PIAZZA\b|Ordine\s+Numero)/i)?.[1]||'').split(/\r?\n/).map(s=>s.trim()).filter(s=>s&&!/^\d+$/.test(s));
  const supplier=(supplierBlock.find(s=>/[A-Za-zÀ-ÿ]{3}/.test(s))||'').replace(/^\d+\s+/,'');
- const cdc=(t.match(/Ordinato\s+C[\\\/]o\s*:\s*(N\d{3})/i)||t.match(/\b(N\d{3})\b/))?.[1]||'';
+ let cdc=(t.match(/Ordinato\s+C[\\\/]o\s*:\s*(N\d{3})/i)||t.match(/\b(N\d{3})\b/))?.[1]||'';
  const block=t.match(/Consegna\s+C[\\\/]o\s*:\s*([\s\S]*?)(?:Riferimento\s*:|Orari\s*:|Articolo\b)/i)?.[1]?.trim()||'';
  const deliveryArea=t.match(/Ordinato\s+C[\\\/]o[\s\S]*?(?=Articolo\b|$)/i)?.[0]||'';
- const normalized=norm(block||deliveryArea),matches=(sites||[]).filter(s=>s.site&&s.pattern&&(!cdc||!s.cdc||norm(s.cdc)===cdc)&&normalized.includes(norm(s.pattern)));
+ const normalized=norm(block||deliveryArea);
+ let matches=(sites||[]).filter(s=>s.site&&s.pattern&&(!cdc||!s.cdc||norm(s.cdc)===cdc)&&normalized.includes(norm(s.pattern)));
+ const university=matches.filter(s=>norm(s.cdc)==='N157');
+ if(university.length&&/\b(?:ECOTEKNE|STUDIUM\s*2000|VALESIO)\b/.test(normalized))matches=university;
  const unique=[...new Set(matches.map(s=>s.site))];const site=unique.length===1?unique[0]:'';
+ if(!cdc&&site&&matches.every(s=>norm(s.cdc)==='N157'))cdc='N157';
  if(!site)warnings.push(unique.length>1?'Più sedi compatibili':'Sede di consegna da verificare');
  if(!supplier)warnings.push('Fornitore da verificare');if(!cdc)warnings.push('CDC da verificare');
  const date=t.match(/Ordine\s+Numero[\s\S]{0,100}?\bDel\s*:\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i)?.[1]?.replace(/[.-]/g,'/')||'';

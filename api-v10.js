@@ -130,7 +130,10 @@ function parseDDT(text){
   const codes=[];
   if(dePietro.test(value)||/\b(?:V(?:IA)?\.?\s+(?:BRENTA|BIRAGO|LANZ[IE]LLOTTI|MARCHE|LAG(?:O|HI) DI BOLSENA)|(?:PIAZZA|P\.?ZZA|PZ)\s+DUOMO)\b/.test(value))codes.push('N153');
   if(/\bBARONCINO\b/.test(value))codes.push('N148');
-  if(/\bV(?:IA)?\.?\s+MONTERONI\b/.test(value))codes.push('N154');
+  const university=/\b(?:ECOTEKNE|STUDIUM\s*2000|VALESIO)\b/.test(value)||
+   (/\bUNIVERSITA['’]?\s+(?:DEL\s+)?SALENTO\b/.test(value)&&/\bMONTERONI\b/.test(value));
+  if(university)codes.push('N157');
+  else if(/\bV(?:IA)?\.?\s+MONTERONI\b/.test(value))codes.push('N154');
   return codes;
  }
  const address=siteCodes(delivery).length?delivery:flat;

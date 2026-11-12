@@ -137,7 +137,7 @@ window.addEventListener('beforeunload',e=>{if(folderBatchBusy){e.preventDefault(
 
 
 function detailChoiceValues(key,r){
- const defaults=key==='company'?['CLINTEX','MONDOFFICE','ECOSI','ALL SERVICE SRL','TOP STORE','LA CASALINDA']:['N153','N148'];
+ const defaults=key==='company'?['CLINTEX','MONDOFFICE','ECOSI','ALL SERVICE SRL','TOP STORE','LA CASALINDA']:['N102','N153','N148','N154','N157'];
  return [...new Set([...defaults,...data.map(x=>x[key]),r[key]].map(x=>String(x||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
 }
 function ddtOriginalName(company,number,original){
