@@ -1,0 +1,16 @@
+.registry-reminder-dialog { width:min(640px,94vw); box-sizing:border-box; }
+.registry-reminder-summary { color:#425e6b; line-height:1.5; overflow-wrap:anywhere; }
+.registry-reminder-recipients { display:grid; gap:12px; margin:18px 0; }
+.registry-reminder-contact { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px; border:1px solid #dce5ea; background:#fff; border-radius:14px; min-width:0; }
+.registry-reminder-contact > div { flex:1; min-width:0; }
+.registry-reminder-contact strong { display:block; font-size:17px; color:#172b3a; }
+.registry-reminder-contact input[type=checkbox] { width:24px; height:24px; flex:none; accent-color:#087d70; }
+.registry-reminder-contact details { width:100%; font-size:13px; color:#4c6675; }
+.registry-reminder-contact details summary { cursor:pointer; padding:8px 0; }
+.registry-reminder-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; }
+.registry-whatsapp-link, .registry-whatsapp-link:visited, button.reminder-whatsapp-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid #087f4c; border-radius:12px; min-height:50px; padding:12px 18px; background:#128c55; color:white; font-weight:700; font-size:15px; text-decoration:none; box-sizing:border-box; text-align:center; }
+.registry-whatsapp-link:hover, button.reminder-whatsapp-button:hover { background:#087f4c; color:white; }
+.registry-whatsapp-link:focus-visible { outline:3px solid #172b3a; outline-offset:3px; }
+.registry-reminder-dialog [hidden], button.reminder-whatsapp-button[hidden] { display:none!important; }
+.registry-reminder-dialog > button { width:100%; min-height:50px; }
+@media(max-width:600px) { .registry-reminder-dialog{padding:18px;} .registry-reminder-dialog .order-dialog-header{top:-18px;} .registry-whatsapp-link{width:100%;} }
