@@ -106,8 +106,13 @@ function parseDDT(text){
    ?String(day).padStart(2,'0')+'/'+String(month).padStart(2,'0')+'/'+yyyy:'';
  }
  const dates=[...new Set([...header.matchAll(new RegExp('\\b'+datePattern,'g'))].map(m=>validDate(m[1])).filter(Boolean))];
- const sourceDate=ecosiDate||labelledDate||documentDate;
- const date=sourceDate?validDate(sourceDate):(dates.length===1?dates[0]:'');
+ const ecosiDateBlock=company==='ECOSI'
+  ?(folded.match(/\bDATA\s+DOCUMENTO\b([\s\S]{0,400})/)?.[1]||'')
+   .split(/\b(?:DESCRIZIONE|RIF\.?\s*V\.?S\.?\s*ORDINE|DATA\s+E\s+ORA|CODICE\s+ARTICOLO)\b/)[0]:'';
+ const ecosiDates=[...new Set([...ecosiDateBlock.matchAll(new RegExp('\\b'+datePattern,'g'))].map(match=>match[1].replace(/\s+/g,'')))];
+ const ecosiColumnDate=ecosiDates.length===1?ecosiDates[0]:'';
+ const sourceDate=ecosiDate||ecosiColumnDate||labelledDate||documentDate;
+ const date=sourceDate?validDate(sourceDate):(company!=='ECOSI'&&dates.length===1?dates[0]:'');
  const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
  const orderNumbers=new Set();
  for(const label of folded.matchAll(labels)){
