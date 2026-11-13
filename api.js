@@ -120,6 +120,15 @@ function parseDDT(text){
  if(!orderNumbers.size&&company==='TOP STORE'&&!new RegExp(labels.source).test(folded)){
   for(const m of folded.matchAll(/\bA\s*(20\d{8})\b/g))orderNumbers.add('A'+m[1]);
  }
+ if(company==='MONDOFFICE'){
+  // OCR can return the labels first and the corresponding values as a separate column.
+  const customerLabel=/\b(?:RIF\.?\s*ORDINE\s*CLIENTE|V\.?S\.?\s*RIFERIMENTO)\b/;
+  const orderHeader=folded.split(/\b(?:CODICE\s+ARTICOLO|DESCRIZIONE\s+ARTICOLO)\b/)[0];
+  if(customerLabel.test(orderHeader)){
+   const references=[...orderHeader.matchAll(/\bA?\s*(20\d{2})\s*[/.-]?\s*(\d{6})\b/g)];
+   for(const reference of references)orderNumbers.add('A'+reference[1]+reference[2]);
+  }
+ }
  const fullReferences=[...orderNumbers].filter(value=>value.startsWith('A'));
  for(const value of fullReferences)orderNumbers.delete(value.slice(-6));
  const order=orderNumbers.size===1?[...orderNumbers][0]:'';
