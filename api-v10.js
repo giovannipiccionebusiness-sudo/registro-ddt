@@ -111,7 +111,13 @@ function parseDDT(text){
    .split(/\b(?:DESCRIZIONE|RIF\.?\s*V\.?S\.?\s*ORDINE|DATA\s+E\s+ORA|CODICE\s+ARTICOLO)\b/)[0]:'';
  const ecosiDates=[...new Set([...ecosiDateBlock.matchAll(new RegExp('\\b'+datePattern,'g'))].map(match=>match[1].replace(/\s+/g,'')))];
  const ecosiColumnDate=ecosiDates.length===1?ecosiDates[0]:'';
- const sourceDate=ecosiDate||ecosiColumnDate||labelledDate||documentDate;
+ const ecosiDocumentNumber=ddt?ddt.replace('/','\\s*/\\s*'):'\\d{3,10}\\s*/\\s*[A-Z]';
+ const ddtDateRows=company==='ECOSI'
+  ?[...folded.matchAll(new RegExp('\\b'+datePattern+'\\s*[|;:]?\\s*'+ecosiDocumentNumber+'\\b','g'))]
+   .map(match=>match[1].replace(/\s+/g,'')):[];
+ const ddtDates=[...new Set(ddtDateRows)];
+ const ecosiRowDate=ddtDates.length===1?ddtDates[0]:'';
+ const sourceDate=ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate;
  const date=sourceDate?validDate(sourceDate):(company!=='ECOSI'&&dates.length===1?dates[0]:'');
  const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
  const orderNumbers=new Set();
@@ -122,8 +128,8 @@ function parseDDT(text){
   const digits=value[1].replace(/\D/g,'');
   orderNumbers.add(digits.length===10?'A'+digits:digits);
  }
- if(!orderNumbers.size&&company==='TOP STORE'&&!new RegExp(labels.source).test(folded)){
-  for(const m of folded.matchAll(/\bA\s*(20\d{8})\b/g))orderNumbers.add('A'+m[1]);
+ if(!orderNumbers.size&&['TOP STORE','CLINTEX'].includes(company)&&!new RegExp(labels.source).test(folded)){
+  for(const m of folded.matchAll(/\bA\s*[/.-]?\s*(20\d{2})\s*[/.-]?\s*(\d{6})\b/g))orderNumbers.add('A'+m[1]+m[2]);
  }
  if(company==='MONDOFFICE'){
   // OCR can return the labels first and the corresponding values as a separate column.
@@ -177,6 +183,35 @@ async function readDDTFields(file){
  return fields;
 }
 
+async function readFocusedDDTFields(file,fields){
+ const needsDate=fields.company==='ECOSI'&&!fields.date;
+ const needsOrder=fields.company==='CLINTEX'&&!fields.order;
+ if(!(needsDate||needsOrder)||!['image/jpeg','image/png'].includes(file.type))return fields;
+ try{
+  const image=await createImageBitmap(file);
+  let focus;
+  try{
+   const top=Math.floor(image.height*.20),height=Math.ceil(image.height*.55);
+   const scale=Math.min(3,2400/image.width,Math.sqrt(8000000/(image.width*height)));
+   const canvas=document.createElement('canvas');
+   canvas.width=Math.ceil(image.width*scale);canvas.height=Math.ceil(height*scale);
+   const context=canvas.getContext('2d');
+   if(!context)throw Error('Preparazione immagine non disponibile.');
+   context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
+   context.drawImage(image,0,top,image.width,height,0,0,canvas.width,canvas.height);
+   focus=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Preparazione OCR non riuscita.')),'image/png'));
+  }finally{image.close();}
+  const text=await ocrDDT(focus);
+  const retry=parseDDT(fields.company+'\n'+text);
+  const normalizeNumber=value=>String(value||'').replace(/[\s\\/-]/g,'');
+  if(fields.ddt&&retry.ddt&&normalizeNumber(fields.ddt)!==normalizeNumber(retry.ddt))return fields;
+  return {...fields,date:fields.date||retry.date,order:fields.order||retry.order};
+ }catch(error){
+  console.warn('Seconda lettura DDT non riuscita:',error.message);
+  return fields;
+ }
+}
+
 async function readDDTDocumentFields(file){
  let native=null;
  if(file.type==='application/pdf'&&typeof DDTPDFViewer!=='undefined'){
@@ -188,7 +223,7 @@ async function readDDTDocumentFields(file){
  }
  try {
   const text=await ocrDDT(file);
-  if(text.trim())return parseDDT(text);
+  if(text.trim())return await readFocusedDDTFields(file,parseDDT(text));
   if(native)return native;
   return parseDDT('');
  } catch(error){
