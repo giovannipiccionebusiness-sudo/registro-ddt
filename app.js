@@ -172,7 +172,7 @@ $('rereadDDT').onclick=async()=>{
  const current=()=>selected===record&&!$('overlay').classList.contains('hidden');
  try{
   const file=await originalDDT(record);
-  const fields=await readDDTFields(new Blob([await downloadDrive(file.id)],{type:file.mimeType}));
+  const fields=await readDDTFields(new Blob([await downloadDrive(file.id)],{type:file.mimeType}),record);
   if(!current())return;
   const labels={company:'Fornitore',ddt:'Numero DDT',date:'Data documento',cdc:'Centro di costo',order:'Ordine Dussmann'};
   const eligible=key=>fields[key]&&!record[key]&&!$('edit_'+key).value.trim();

@@ -163,8 +163,8 @@ function parseDDT(text){
  return{company,ddt,date,cdc,order,cdcFromOrder};
 }
 
-async function readDDTFields(file){
- const {cdcFromOrder,...fields}=await readDDTDocumentFields(file);
+async function readDDTFields(file,known={}){
+ const {cdcFromOrder,...fields}=await readDDTDocumentFields(file,known);
  if(!cdcFromOrder||!fields.order)return fields;
  try{
   const reference=OrdersCore.orderRef(fields.order);
@@ -183,7 +183,7 @@ async function readDDTFields(file){
  return fields;
 }
 
-async function readFocusedDDTFields(file,fields){
+async function readFocusedDDTFields(file,fields,known={}){
  const needsDate=fields.company==='ECOSI'&&!fields.date;
  const needsOrder=fields.company==='CLINTEX'&&!fields.order;
  if(!(needsDate||needsOrder)||!['image/jpeg','image/png'].includes(file.type))return fields;
@@ -191,20 +191,24 @@ async function readFocusedDDTFields(file,fields){
   const image=await createImageBitmap(file);
   let focus;
   try{
-   const top=Math.floor(image.height*.20),height=Math.ceil(image.height*.55);
-   const scale=Math.min(3,2400/image.width,Math.sqrt(8000000/(image.width*height)));
+   const left=needsDate?Math.floor(image.width*.45):0;
+   const width=needsDate?Math.ceil(image.width*.50):image.width;
+   const top=Math.floor(image.height*.20),height=Math.ceil(image.height*(needsDate ? 0.30 : 0.55));
+   const scale=Math.min(needsDate?5:3,2400/width,Math.sqrt(8000000/(width*height)));
    const canvas=document.createElement('canvas');
-   canvas.width=Math.ceil(image.width*scale);canvas.height=Math.ceil(height*scale);
+   canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
    const context=canvas.getContext('2d');
    if(!context)throw Error('Preparazione immagine non disponibile.');
    context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
-   context.drawImage(image,0,top,image.width,height,0,0,canvas.width,canvas.height);
+   context.drawImage(image,left,top,width,height,0,0,canvas.width,canvas.height);
    focus=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Preparazione OCR non riuscita.')),'image/png'));
   }finally{image.close();}
   const text=await ocrDDT(focus);
   const retry=parseDDT(fields.company+'\n'+text);
   const normalizeNumber=value=>String(value||'').replace(/[\s\\/-]/g,'');
-  if(fields.ddt&&retry.ddt&&normalizeNumber(fields.ddt)!==normalizeNumber(retry.ddt))return fields;
+  const expectedNumber=fields.ddt||known.ddt;
+  if(expectedNumber&&retry.ddt&&normalizeNumber(expectedNumber)!==normalizeNumber(retry.ddt))return fields;
+  if(needsDate&&expectedNumber&&!normalizeNumber(text).includes(normalizeNumber(expectedNumber)))return fields;
   return {...fields,date:fields.date||retry.date,order:fields.order||retry.order};
  }catch(error){
   console.warn('Seconda lettura DDT non riuscita:',error.message);
@@ -212,18 +216,19 @@ async function readFocusedDDTFields(file,fields){
  }
 }
 
-async function readDDTDocumentFields(file){
+async function readDDTDocumentFields(file,known={}){
+ const parse=text=>parseDDT((known.company?known.company+'\n':'')+text);
  let native=null;
  if(file.type==='application/pdf'&&typeof DDTPDFViewer!=='undefined'){
   try {
    const text=await DDTPDFViewer.extractText(await file.arrayBuffer());
-   if(text.trim())native=parseDDT(text);
+   if(text.trim())native=parse(text);
   } catch {}
   if(native&&native.company&&native.ddt&&native.date&&native.order&&(native.cdc||native.cdcFromOrder))return native;
  }
  try {
   const text=await ocrDDT(file);
-  if(text.trim())return await readFocusedDDTFields(file,parseDDT(text));
+  if(text.trim())return await readFocusedDDTFields(file,parse(text),known);
   if(native)return native;
   return parseDDT('');
  } catch(error){
