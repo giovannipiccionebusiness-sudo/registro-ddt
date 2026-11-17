@@ -61,7 +61,8 @@ function parseDDT(text){
  const suppliers=[
   ['CLINTEX',/\bCLINTEX\b/],['MONDOFFICE',/\bMOND(?:O\s+)?OFFICE\b/],
   ['ECOSI',/\bE['’]?\s*COSI\b/],['ALL SERVICE SRL',/\bALL\s+SERVICE\b/],
-  ['TOP STORE',/\bTOP\s+STORE\b/],['LA CASALINDA',/\bLA\s+CASALINDA\b/]
+  ['TOP STORE',/\bTOP\s+STORE\b/],['LA CASALINDA',/\bLA\s+CASALINDA\b/],
+  ['MAGRIS',/\bMAGRIS\b|\bMAGRISGROUP\s*\.\s*COM\b/]
  ];
  const company=suppliers.find(([,pattern])=>pattern.test(flat))?.[0]||'';
  const pick=pattern=>folded.match(pattern)?.[1]?.replace(/\s+/g,'')||'';
@@ -71,6 +72,16 @@ function parseDDT(text){
   case 'CLINTEX': {
    const area=folded.match(/N\.?\s*DOCUMENTO[\s\S]{0,180}/)?.[0]||header;
    ddt=[...area.matchAll(/[\\/]\s*(\d{4,6})\s*[\\/]/g)].map(m=>m[1]).find(s=>!['72100','80100'].includes(s))||'';
+   break;
+  }
+  case 'MAGRIS': {
+   const area=folded.match(/\bNUMERO\s+DOCUMENTO\b[\s\S]{0,180}/)?.[0]||'';
+   const numbers=[...new Set([...area.matchAll(/\b(100\d{7})\b/g)].map(match=>match[1]))];
+   if(numbers.length===1)ddt=numbers[0];
+   if(!area&&/\bDDT\s+DI\s+VENDITA\b/.test(folded)){
+    const rows=[...new Set([...header.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{4}\s*[|:]?\s*(100\d{7})\b/g)].map(match=>match[1]))];
+    if(rows.length===1)ddt=rows[0];
+   }
    break;
   }
   case 'MONDOFFICE':
@@ -140,10 +151,24 @@ function parseDDT(text){
    for(const reference of references)orderNumbers.add('A'+reference[1]+reference[2]);
   }
  }
+ if(company==='MAGRIS'){
+  const referenceHeader=header.split(/\\b(?:CODICE\\s+DESCRIZIONE|DESCRIZIONE\\s+MERCE)\\b/)[0];
+  if(/\\bDDT\\s+DI\\s+VENDITA\\b/.test(referenceHeader)){
+   for(const value of referenceHeader.matchAll(/\\bA(?:\\s*A)?\\s*[/.-]?\\s*(20\\d{2})\\s*[/.-]?\\s*(\\d{6})\\b/g)){
+    orderNumbers.add('A'+value[1]+value[2]);
+   }
+  }
+  for(const label of folded.matchAll(/\bV\.?S\.?\s*RIFERIMENTO\b/g)){
+   const area=folded.slice(label.index+label[0].length,label.index+label[0].length+180);
+   for(const value of area.matchAll(/\b(?:A\s*[/.-]?\s*){0,2}(20\d{2})\s*[/.-]?\s*(\d{6})\b/g)){
+    orderNumbers.add('A'+value[1]+value[2]);
+   }
+  }
+ }
  const fullReferences=[...orderNumbers].filter(value=>value.startsWith('A'));
  for(const value of fullReferences)orderNumbers.delete(value.slice(-6));
  const order=orderNumbers.size===1?[...orderNumbers][0]:'';
- const explicit=[...new Set([...flat.matchAll(/\b(?:CDC|CENTRO DI COSTO)\s*[:.-]?\s*(N\d{3})\b/g)].map(m=>m[1]))];
+ const explicit=[...new Set([...flat.matchAll(/\b(?:CDC|CENTRO DI COSTO|CONTO PRESSO CLIENTE)\s*[:.-]?\s*(N\d{3})\b/g)].map(m=>m[1]))];
  const delivery=flat.match(/\b(?:DESTINAZIONE DI CONSEGNA|INDIRIZZO DI CONSEGNA|CONSEGNA PRESSO|DESTINAZIONE MERCE)\b\s*[:.-]?\s*(.{1,280})/)?.[1]||'';
  const dePietro=/\bV(?:IA(?:LE)?|\.?LE)?\.?\s+DE\s+PIETRO\b/;
  function siteCodes(value){
@@ -186,14 +211,16 @@ async function readDDTFields(file,known={}){
 async function readFocusedDDTFields(file,fields,known={}){
  const needsDate=fields.company==='ECOSI'&&!fields.date;
  const needsOrder=fields.company==='CLINTEX'&&!fields.order;
- if(!(needsDate||needsOrder)||!['image/jpeg','image/png'].includes(file.type))return fields;
+ const needsMagris=fields.company==='MAGRIS'&&(!fields.ddt||!fields.order);
+ if(!(needsDate||needsOrder||needsMagris)||!['image/jpeg','image/png'].includes(file.type))return fields;
  try{
   const image=await createImageBitmap(file);
   let focus;
   try{
    const left=needsDate?Math.floor(image.width*.45):0;
    const width=needsDate?Math.ceil(image.width*.50):image.width;
-   const top=Math.floor(image.height*.20),height=Math.ceil(image.height*(needsDate ? 0.30 : 0.55));
+   const top=Math.floor(image.height*(needsMagris ? 0.18 : 0.20));
+   const height=Math.ceil(image.height*(needsMagris ? 0.26 : needsDate ? 0.30 : 0.55));
    const scale=Math.min(needsDate?5:3,2400/width,Math.sqrt(8000000/(width*height)));
    const canvas=document.createElement('canvas');
    canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
@@ -209,7 +236,7 @@ async function readFocusedDDTFields(file,fields,known={}){
   const expectedNumber=fields.ddt||known.ddt;
   if(expectedNumber&&retry.ddt&&normalizeNumber(expectedNumber)!==normalizeNumber(retry.ddt))return fields;
   if(needsDate&&expectedNumber&&!normalizeNumber(text).includes(normalizeNumber(expectedNumber)))return fields;
-  return {...fields,date:fields.date||retry.date,order:fields.order||retry.order};
+  return {...fields,ddt:fields.ddt||retry.ddt,date:fields.date||retry.date,order:fields.order||retry.order};
  }catch(error){
   console.warn('Seconda lettura DDT non riuscita:',error.message);
   return fields;
