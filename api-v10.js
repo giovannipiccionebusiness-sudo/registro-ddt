@@ -215,20 +215,30 @@ async function readDDTFields(file,known={}){
  return fields;
 }
 
+function ddtFutureYear(value,key){
+ const text=String(value||'').trim();
+ const match=key==='order'
+  ?text.replace(/[\s/.-]/g,'').match(/^A?(20\d{2})\d{6}$/)
+  :text.match(/^\d{1,2}[./-]\d{1,2}[./-](20\d{2})$/);
+ return Boolean(match&&Number(match[1])>new Date().getUTCFullYear()+1);
+}
+
 async function readFocusedDDTFields(file,fields,known={}){
  const needsDate=fields.company==='ECOSI'&&!fields.date;
  const needsOrder=['CLINTEX','ALL SERVICE SRL'].includes(fields.company)&&!fields.order;
- const needsMagris=fields.company==='MAGRIS'&&(!fields.ddt||!fields.order);
+ const needsOrderYear=fields.company==='MAGRIS'&&ddtFutureYear(fields.order,'order');
+ const needsDateYear=fields.company==='MAGRIS'&&ddtFutureYear(fields.date,'date');
+ const needsMagris=fields.company==='MAGRIS'&&(!fields.ddt||!fields.order||ddtFutureYear(fields.order,'order')||ddtFutureYear(fields.date,'date'));
  if(!(needsDate||needsOrder||needsMagris)||!['image/jpeg','image/png'].includes(file.type))return fields;
  try{
   const image=await createImageBitmap(file);
   let focus;
   try{
-   const left=needsDate?Math.floor(image.width*.45):0;
-   const width=needsDate?Math.ceil(image.width*.50):image.width;
-   const top=Math.floor(image.height*(needsMagris ? 0.18 : 0.20));
-   const height=Math.ceil(image.height*(needsMagris ? 0.26 : needsDate ? 0.30 : 0.55));
-   const scale=Math.min(needsDate?5:3,2400/width,Math.sqrt(8000000/(width*height)));
+   const region=needsOrderYear?[.40,.27,.32,.11]:needsDateYear?[.71,.30,.25,.08]:
+    needsDate?[.45,.20,.50,.30]:needsMagris?[0,.18,1,.26]:[0,.20,1,.55];
+   const left=Math.floor(image.width*region[0]),top=Math.floor(image.height*region[1]);
+   const width=Math.ceil(image.width*region[2]),height=Math.ceil(image.height*region[3]);
+   const scale=Math.min(needsDate||needsOrderYear||needsDateYear?5:3,2400/width,Math.sqrt(8000000/(width*height)));
    const canvas=document.createElement('canvas');
    canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
    const context=canvas.getContext('2d');
@@ -238,12 +248,18 @@ async function readFocusedDDTFields(file,fields,known={}){
    focus=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Preparazione OCR non riuscita.')),'image/png'));
   }finally{image.close();}
   const text=await ocrDDT(focus);
-  const retry=parseDDT(fields.company+'\n'+text);
+  const retry=parseDDT(fields.company+'\n'+(needsOrderYear?'VS. RIFERIMENTO\n':'')+text);
   const normalizeNumber=value=>String(value||'').replace(/[\s\\/-]/g,'');
   const expectedNumber=fields.ddt||known.ddt;
   if(expectedNumber&&retry.ddt&&normalizeNumber(expectedNumber)!==normalizeNumber(retry.ddt))return fields;
   if(needsDate&&expectedNumber&&!normalizeNumber(text).includes(normalizeNumber(expectedNumber)))return fields;
-  return {...fields,ddt:fields.ddt||retry.ddt,date:fields.date||retry.date,order:fields.order||retry.order};
+  const result={...fields,ddt:fields.ddt||retry.ddt,date:fields.date||retry.date,order:fields.order||retry.order};
+  if(needsMagris){
+   if(ddtFutureYear(fields.order,'order')&&retry.order&&!ddtFutureYear(retry.order,'order')&&
+    fields.order.replace(/\\D/g,'').slice(-6)===retry.order.replace(/\\D/g,'').slice(-6))result.order=retry.order;
+   if(ddtFutureYear(fields.date,'date')&&retry.date&&!ddtFutureYear(retry.date,'date'))result.date=retry.date;
+  }
+  return result;
  }catch(error){
   console.warn('Seconda lettura DDT non riuscita:',error.message);
   return fields;
@@ -262,7 +278,12 @@ async function readDDTDocumentFields(file,known={}){
  }
  try {
   const text=await ocrDDT(file);
-  if(text.trim())return await readFocusedDDTFields(file,parse(text),known);
+  if(text.trim()){
+   const fields=await readFocusedDDTFields(file,parse(text),known);
+   if(fields.company==='MAGRIS'&&!ddtFutureYear(fields.order,'order')&&ddtFutureYear(fields.date,'date'))
+    return await readFocusedDDTFields(file,fields,known);
+   return fields;
+  }
   if(native)return native;
   return parseDDT('');
  } catch(error){

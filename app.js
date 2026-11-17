@@ -175,12 +175,17 @@ $('rereadDDT').onclick=async()=>{
   const fields=await readDDTFields(new Blob([await downloadDrive(file.id)],{type:file.mimeType}),record);
   if(!current())return;
   const labels={company:'Fornitore',ddt:'Numero DDT',date:'Data documento',cdc:'Centro di costo',order:'Ordine Dussmann'};
-  const eligible=key=>fields[key]&&!record[key]&&!$('edit_'+key).value.trim();
+  const correction=key=>['date','order'].includes(key)&&record[key]&&fields[key]!==record[key]&&
+   ddtFutureYear(record[key],key)&&!ddtFutureYear(fields[key],key);
+  const eligible=key=>fields[key]&&(
+   (!record[key]&&!$('edit_'+key).value.trim())||
+   (correction(key)&&$('edit_'+key).value.trim()===record[key])
+  );
   const keys=Object.keys(labels).filter(eligible);
-  if(!keys.length){result.textContent='La rilettura non ha trovato nuovi valori per i campi vuoti.';return;}
+  if(!keys.length){result.textContent='La rilettura non ha trovato nuovi valori affidabili da proporre.';return;}
   const list=document.createElement('ul');
   for(const key of keys){
-   const item=document.createElement('li');item.textContent=labels[key]+' · '+fields[key];list.append(item);
+   const item=document.createElement('li');item.textContent=labels[key]+' · '+(correction(key)?record[key]+' → ':'')+fields[key];list.append(item);
   }
   const apply=document.createElement('button');
   apply.type='button';apply.className='btn';apply.textContent='Usa i valori rilevati';
@@ -198,7 +203,7 @@ $('rereadDDT').onclick=async()=>{
     }
     applied++;
    }
-   result.textContent=applied?'Valori inseriti nei campi vuoti. Premi “Salva dati” per confermare.':'I campi sono già stati compilati.';
+   result.textContent=applied?'Valori rilevati applicati. Premi “Salva dati” per confermare.':'I campi sono già stati compilati.';
   };
   result.replaceChildren(list,apply);
  }catch(error){if(current())result.textContent=error.message;}
