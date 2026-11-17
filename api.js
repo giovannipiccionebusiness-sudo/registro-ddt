@@ -165,6 +165,13 @@ function parseDDT(text){
    }
   }
  }
+ if(company==='ALL SERVICE SRL'){
+  for(const label of folded.matchAll(/\bN\s*[.°O'’]?\s*ORDINE\b/g)){
+   const tail=folded.slice(label.index+label[0].length);
+   const reference=tail.match(/^\s*[:#.-]?\s*(A?\s*[/.-]?\s*20\d{2}\s*[/.-]?\s*\d{6})(?![A-Z0-9/])/);
+   if(reference)orderNumbers.add('A'+reference[1].replace(/\D/g,''));
+  }
+ }
  const fullReferences=[...orderNumbers].filter(value=>value.startsWith('A'));
  for(const value of fullReferences)orderNumbers.delete(value.slice(-6));
  const order=orderNumbers.size===1?[...orderNumbers][0]:'';
@@ -210,7 +217,7 @@ async function readDDTFields(file,known={}){
 
 async function readFocusedDDTFields(file,fields,known={}){
  const needsDate=fields.company==='ECOSI'&&!fields.date;
- const needsOrder=fields.company==='CLINTEX'&&!fields.order;
+ const needsOrder=['CLINTEX','ALL SERVICE SRL'].includes(fields.company)&&!fields.order;
  const needsMagris=fields.company==='MAGRIS'&&(!fields.ddt||!fields.order);
  if(!(needsDate||needsOrder||needsMagris)||!['image/jpeg','image/png'].includes(file.type))return fields;
  try{
