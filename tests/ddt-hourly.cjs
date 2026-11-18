@@ -1,0 +1,18 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const headers=['Nome file','Azienda','Numero DDT','Data DDT','CDC','Ordine Dussmann','Protocollo','Stato','Link file protocollato'];
+const sync={};let triggers=[],reads=0,rows=[headers,['KNOWN.JPG','MAGRIS','1000312345','16/11/2026','N153','A2026356280','','OCR DA VERIFICARE','']];
+const sheet={getDataRange:()=>({getDisplayValues:()=>rows}),getRange:(r,c)=>({getDisplayValue:()=>headers[c-1]}),appendRow:r=>rows.push(r)};
+const syncSheet={getRange:(r,c)=>({getValue:()=>sync[r]||'',setValue:v=>sync[r]=v})};
+const file=(name,text)=>({getName:()=>name,getId:()=>name,getMimeType:()=>name.endsWith('.TXT')?'text/plain':'image/jpeg',setName:n=>name=n,text});
+let files=[file('KNOWN.JPG',''),file('✅ DONE.JPG',''),file('README.TXT',''),file('NEW.JPG','MAGRIS DDT di Vendita\nNumero documento 1000320360\nData documento 16.11.2026\nVs. Riferimento AA 2026356280\nConto presso cliente N153')];
+const iterator=a=>{let n=0;return{hasNext:()=>n<a.length,next:()=>a[n++]}};
+const ss={getSheetByName:n=>n==='DDTSync'?syncSheet:n==='Foglio1'?sheet:null};
+const ctx={console,SpreadsheetApp:{openById:()=>ss,flush:()=>{}},DriveApp:{getFolderById:()=>({getFiles:()=>iterator(files),getFilesByName:()=>iterator([])})},LockService:{getScriptLock:()=>({tryLock:()=>true,waitLock:()=>{},releaseLock:()=>{}})},ScriptApp:{getProjectTriggers:()=>triggers,newTrigger:name=>({timeBased(){return this},everyHours(n){assert.equal(n,1);return this},create(){triggers.push({getHandlerFunction:()=>name})}}),deleteTrigger:t=>triggers=triggers.filter(v=>v!==t)},estraiTestoOCR:f=>{reads++;return f.text;}};
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('gas/LetturaDDTOraria.gs','utf8'),ctx);
+ctx.attivaLetturaDDTOgniOra();ctx.attivaLetturaDDTOgniOra();assert.equal(triggers.length,1);assert.equal(JSON.parse(sync[4]).enabled,true);
+ctx.letturaDDTOraria();assert.equal(reads,1);assert.equal(rows.length,3);assert.equal(rows[2][1],'MAGRIS');assert.equal(rows[2][2],'1000320360');assert.equal(rows[2][5],'A2026356280');assert.equal(JSON.parse(sync[2]).status,'completed');assert(JSON.parse(sync[2]).lastCompletedAt);
+ctx.letturaDDTOraria();assert.equal(rows.length,3);assert.equal(reads,1);
+files=[file('COPY.JPG',files[3].text)];ctx.letturaDDTOraria();assert.equal(rows.length,3);assert.equal(JSON.parse(sync[2]).duplicates,1);
+const oldStatus=sync[2];sync[3]=JSON.stringify({status:'running',startedAt:new Date().toISOString()});ctx.letturaDDTOraria();assert.equal(sync[2],oldStatus);
+sync[3]='';ctx.estraiTestoOCR=()=>{throw Error('OCR unavailable')};ctx.letturaDDTOraria();assert.equal(JSON.parse(sync[2]).status,'partial');assert.equal(JSON.parse(sync[2]).errors.length,1);assert.equal(rows.length,3);
+console.log('PASS: hourly trigger idempotence, new OCR import, repeat scan, duplicate, manual overlap, OCR failure, preserved registry.');
