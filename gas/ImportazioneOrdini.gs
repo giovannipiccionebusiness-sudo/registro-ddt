@@ -31,11 +31,13 @@ var OrdersCore=(()=>{
  const block=t.match(/Consegna\s+C[\\\/]o\s*:\s*([\s\S]*?)(?:Riferimento\s*:|Orari\s*:|Articolo\b)/i)?.[1]?.trim()||'';
  const deliveryArea=t.match(/Ordinato\s+C[\\\/]o[\s\S]*?(?=Articolo\b|$)/i)?.[0]||'';
  const normalized=norm(block||deliveryArea);
- let matches=(sites||[]).filter(s=>s.site&&s.pattern&&(!cdc||!s.cdc||norm(s.cdc)===cdc)&&normalized.includes(norm(s.pattern)));
+ const martaAddress=/\bMARTA\s+TARANTO\b/.test(normalized)||(/\bV(?:IA|\.)\s+(?:CAMILLO(?:\s+BENSO)?\s+)?CAVOUR\s*[,.-]?\s*(?:N[.°]?\s*)?10\b/.test(normalized)&&/\bTARANTO\b/.test(normalized));
+ let matches=(sites||[]).filter(s=>s.site&&s.pattern&&(!cdc||!s.cdc||norm(s.cdc)===cdc)&&(norm(s.cdc)==='N110'?martaAddress:normalized.includes(norm(s.pattern))));
  const university=matches.filter(s=>norm(s.cdc)==='N157');
  if(university.length&&/\b(?:ECOTEKNE|STUDIUM\s*2000|VALESIO)\b/.test(normalized))matches=university;
  const unique=[...new Set(matches.map(s=>s.site))];const site=unique.length===1?unique[0]:'';
  if(!cdc&&site&&matches.every(s=>norm(s.cdc)==='N157'))cdc='N157';
+ if(!cdc&&site&&martaAddress&&matches.every(s=>norm(s.cdc)==='N110'))cdc='N110';
  if(!site)warnings.push(unique.length>1?'Più sedi compatibili':'Sede di consegna da verificare');
  if(!supplier)warnings.push('Fornitore da verificare');if(!cdc)warnings.push('CDC da verificare');
  const date=t.match(/Ordine\s+Numero[\s\S]{0,100}?\bDel\s*:\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i)?.[1]?.replace(/[.-]/g,'/')||'';
