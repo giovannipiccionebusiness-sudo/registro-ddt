@@ -68,10 +68,22 @@ function parseDDT(text){
  const company=suppliers.find(([,pattern])=>pattern.test(flat))?.[0]||'';
  const pick=pattern=>folded.match(pattern)?.[1]?.replace(/\s+/g,'')||'';
  const header=folded.split(/\r?\n/).slice(0,100).join('\n');
+ // OCR may emit a table's value line before its BOLLA label.
+ const paredesPairs=new Map();
+ if(company==='PAREDES'){
+  for(const label of folded.matchAll(/\bBOLLA\b/g)){
+   const area=folded.slice(Math.max(0,label.index-180),label.index+220);
+   for(const m of area.matchAll(/\b([A-Z]{1,3}\s*\/\s*\d{1,3}\s*\/\s*\d{3,10})\s*[!|]?\s*(?:DEL\s*[:.-]?\s*)?(\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*(?:\d{4}|\d{2}))(?!\d)/g)){
+    const number=m[1].replace(/\s+/g,''),date=validDate(m[2]);
+    if(date)paredesPairs.set(number+'|'+date,{number,date});
+   }
+  }
+ }
+ const paredesPair=paredesPairs.size===1?[...paredesPairs.values()][0]:null;
  let ddt='';
  switch(company){
   case 'PAREDES':
-   ddt=pick(/\bBOLLA\s*[:#.-]?\s*([A-Z]{1,3}\s*\/\s*\d{1,3}\s*\/\s*\d{3,10})\b/);
+   ddt=paredesPairs.size>1?'':paredesPair?.number||pick(/\bBOLLA\s*[:#.-]?\s*([A-Z]{1,3}\s*\/\s*\d{1,3}\s*\/\s*\d{3,10})\b/);
    break;
   case 'PANZERI':
    ddt=pick(/DOCUMENTO\s+DI\s+TRASPORTO[\s\S]{0,120}?\bNUMERO\s*[:#.-]?\s*(?:DEL\s*)?([A-Z]{0,3}\s*\d{3,10})\b(?!\s*\/)/);
@@ -136,10 +148,10 @@ function parseDDT(text){
  const ddtDates=[...new Set(ddtDateRows)];
  const ecosiRowDate=ddtDates.length===1?ddtDates[0]:'';
  const supplierDate=company==='PAREDES'
-  ?pick(new RegExp('\\bBOLLA\\s*[:#.-]?\\s*[A-Z]{1,3}\\s*/\\s*\\d{1,3}\\s*/\\s*\\d{3,10}\\s+DEL\\s*'+datePattern))
+  ?paredesPair?.date||pick(new RegExp('\\bBOLLA\\s*[:#.-]?\\s*[A-Z]{1,3}\\s*/\\s*\\d{1,3}\\s*/\\s*\\d{3,10}\\s+DEL\\s*'+datePattern))
   :company==='PANZERI'?pick(new RegExp('DOCUMENTO\\s+DI\\s+TRASPORTO[\\s\\S]{0,160}?\\b(?:NUMERO\\s*)?(?:DEL\\s*)?[A-Z]{0,3}\\s*\\d{3,10}\\s+(?:DEL\\s*)?'+datePattern)):'';
- const sourceDate=supplierDate||ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate;
- const date=sourceDate?validDate(sourceDate):(company!=='ECOSI'&&dates.length===1?dates[0]:'');
+ const sourceDate=company==='PAREDES'?supplierDate:(supplierDate||ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate);
+ const date=sourceDate?validDate(sourceDate):(!['ECOSI','PAREDES'].includes(company)&&dates.length===1?dates[0]:'');
  const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
  const orderNumbers=new Set();
  for(const label of folded.matchAll(labels)){
