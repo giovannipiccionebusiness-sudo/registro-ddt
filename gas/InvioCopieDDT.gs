@@ -7,6 +7,7 @@ function copieDDTSetup(){
  ['Voce','Valore'],['Destinatario N154','Cappelluti@dussmann.it'],
  ['Oggetto','DDT protocollato {fornitore} n. {ddt} – CDC {cdc}'],
  ['Testo','Ciao Giovanni,\n\nin allegato il DDT {fornitore} n. {ddt} del {data}, protocollato con n. {protocollo}, relativo al CDC {cdc} – Acquedotto Pugliese Lecce.\nOrdine Dussmann: {ordine}.\n\nCordiali saluti.'],['Stato','ATTIVO']]);}
+ cfg.setColumnWidth(1,190);cfg.setColumnWidth(2,750);cfg.getRange('B4').setWrap(true);cfg.setRowHeight(4,150);
  let queue=ss.getSheetByName('CopieDDTInvii');
  if(!queue){queue=ss.insertSheet('CopieDDTInvii');queue.getRange(1,1,1,18).setValues([['ID documento','Richiesto il','Riga registro','Nome file','Fornitore','Numero DDT','Data DDT','CDC','Ordine','Protocollo','PDF','Destinatario','Oggetto','Testo','Stato','Inviato il','Esito','Avviato il']]);}
  const existing=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='inviaCopieDDT');
