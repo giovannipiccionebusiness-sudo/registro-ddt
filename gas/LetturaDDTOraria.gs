@@ -80,6 +80,7 @@ function ddtHourlyParse_(text){
   ['CLINTEX',/\bCLINTEX\b/],['MONDOFFICE',/\bMOND(?:O\s+)?OFFICE\b/],
   ['ECOSI',/\bE['’]?\s*COSI\b/],['ALL SERVICE SRL',/\bALL\s+SERVICE\b/],
   ['TOP STORE',/\bTOP\s+STORE\b/],['LA CASALINDA',/\bLA\s+CASALINDA\b/],
+  ['PAREDES',/\bPAREDES\b/],['PANZERI',/\bPANZERI\b/],
   ['MAGRIS',/\bMAGRIS\b|\bMAGRISGROUP\s*\.\s*COM\b/]
  ];
  const company=suppliers.find(([,pattern])=>pattern.test(flat))?.[0]||'';
@@ -87,6 +88,12 @@ function ddtHourlyParse_(text){
  const header=folded.split(/\r?\n/).slice(0,100).join('\n');
  let ddt='';
  switch(company){
+  case 'PAREDES':
+   ddt=pick(/\bBOLLA\s*[:#.-]?\s*([A-Z]{1,3}\s*\/\s*\d{1,3}\s*\/\s*\d{3,10})\b/);
+   break;
+  case 'PANZERI':
+   ddt=pick(/DOCUMENTO\s+DI\s+TRASPORTO[\s\S]{0,120}?\bNUMERO\s*[:#.-]?\s*(?:DEL\s*)?([A-Z]{0,3}\s*\d{3,10})\b(?!\s*\/)/);
+   break;
   case 'CLINTEX': {
    const area=folded.match(/N\.?\s*DOCUMENTO[\s\S]{0,180}/)?.[0]||header;
    ddt=[...area.matchAll(/[\\/]\s*(\d{4,6})\s*[\\/]/g)].map(m=>m[1]).find(s=>!['72100','80100'].includes(s))||'';
@@ -146,7 +153,10 @@ function ddtHourlyParse_(text){
    .map(match=>match[1].replace(/\s+/g,'')):[];
  const ddtDates=[...new Set(ddtDateRows)];
  const ecosiRowDate=ddtDates.length===1?ddtDates[0]:'';
- const sourceDate=ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate;
+ const supplierDate=company==='PAREDES'
+  ?pick(new RegExp('\\bBOLLA\\s*[:#.-]?\\s*[A-Z]{1,3}\\s*/\\s*\\d{1,3}\\s*/\\s*\\d{3,10}\\s+DEL\\s*'+datePattern))
+  :company==='PANZERI'?pick(new RegExp('DOCUMENTO\\s+DI\\s+TRASPORTO[\\s\\S]{0,160}?\\b(?:NUMERO\\s*)?(?:DEL\\s*)?[A-Z]{0,3}\\s*\\d{3,10}\\s+(?:DEL\\s*)?'+datePattern)):'';
+ const sourceDate=supplierDate||ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate;
  const date=sourceDate?validDate(sourceDate):(company!=='ECOSI'&&dates.length===1?dates[0]:'');
  const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
  const orderNumbers=new Set();
@@ -190,12 +200,21 @@ function ddtHourlyParse_(text){
    if(reference)orderNumbers.add('A'+reference[1].replace(/\D/g,''));
   }
  }
+ if(company==='PANZERI'){
+  // Only the customer's reference, never 'Ns. Ord.' (the supplier's order).
+  for(const m of folded.matchAll(/\bV\.?S\.?\s*\.?\s*ORD(?:INE)?\.?\s*[:#.-]?\s*(A?\s*20\d{2}\s*[/.-]?\s*\d{6}|A?\s*\d{6})(?!\d)/g)){
+   const digits=m[1].replace(/\D/g,'');orderNumbers.add(digits.length===10?'A'+digits:digits);
+  }
+ }
+ if(company==='PAREDES'){
+  for(const m of folded.matchAll(/\bORDINE\s*[:#.-]?\s*A?\s*(20\d{2})\s*[/.-]?\s*(\d{6})\b/g))orderNumbers.add('A'+m[1]+m[2]);
+ }
  const fullReferences=[...orderNumbers].filter(value=>value.startsWith('A'));
  for(const value of fullReferences)orderNumbers.delete(value.slice(-6));
  const order=orderNumbers.size===1?[...orderNumbers][0]:'';
  const explicit=[...new Set([...flat.matchAll(/\b(?:CDC|CENTRO DI COSTO|CONTO PRESSO CLIENTE)\s*[:.-]?\s*(N\d{3})\b/g)].map(m=>m[1]))];
  const delivery=flat.match(/\b(?:DESTINAZIONE DI CONSEGNA|INDIRIZZO DI CONSEGNA|CONSEGNA PRESSO|DESTINAZIONE MERCE)\b\s*[:.-]?\s*(.{1,280})/)?.[1]||'';
- const dePietro=/\bV(?:IA(?:LE)?|\.?LE)?\.?\s+DE\s+PIETRO\b/;
+ const dePietro=/\bV(?:IA(?:LE)?|\.?LE)?\.?\s+(?:MICHELE\s+)?DE\s+PIETRO\b/;
  function siteCodes(value){
   const codes=[];
   if(/\bMARTA\s+TARANTO\b/.test(value)||(/\bV(?:IA|\.)\s+(?:CAMILLO(?:\s+BENSO)?\s+)?CAVOUR\s*[,.-]?\s*(?:N[.°]?\s*)?10\b/.test(value)&&/\bTARANTO\b/.test(value)))codes.push('N110');
@@ -216,7 +235,7 @@ function ddtHourlyParse_(text){
 
 function ddtHourlyDuplicates_(record,rows){
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
- const supplier=v=>norm(v).replace(/[^A-Z0-9]/g,'').replace(/(?:SRL|SPA)$/,'');
+ const supplier=v=>norm(v).replace(/[^A-Z0-9]/g,'').replace(/(?:SRL|SPA)$/,'').replace(/^PAREDESITALIA$/,'PAREDES');
  const date=v=>norm(v).replace(/[-.]/g,'/').split('/').map(part=>part.padStart(2,'0')).join('/');
  const filename=v=>norm(v).replace(/^✅\s*/,'');
  const number=v=>norm(v).replace(/[\\/]/g,'-').replace(/\s/g,'');

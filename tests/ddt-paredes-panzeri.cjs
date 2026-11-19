@@ -1,0 +1,17 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const {parseDDT}=require('../api-v10.js');
+const panzeri='PANZERI s.r.l. www.panzerisrl.it\nDESTINAZIONE MERCE\nN153 - CORTE APPELLO\nVIALE MICHELE DE PIETRO\n73100 LECCE\nDOCUMENTO DI TRASPORTO\nNumero B07759 Del 17/11/2026\nMATERIALE PER DUSSMANN SERVICE\nVs. Ord.2026356297 del 06/11/2026 - Ns. Ord. 00155124 del 09/11/2026';
+const paredes='PAREDES ITALIA S.p.A.\nSpedire a: DUSSMANN C/O MARTA TARANTO\nVIA CAVOUR 10 74100 TARANTO\nDOCUMENTO DI TRASPORTO (Dpr 472 del 14/08/96)\nBOLLA AL/1/624209 DEL 26/10/2026 A mezzo VETTORE\nOrdine A 2026337695';
+assert.deepEqual(parseDDT(panzeri),{company:'PANZERI',ddt:'B07759',date:'17/11/2026',cdc:'N153',order:'A2026356297',cdcFromOrder:false});
+assert.deepEqual(parseDDT(paredes),{company:'PAREDES',ddt:'AL/1/624209',date:'26/10/2026',cdc:'N110',order:'A2026337695',cdcFromOrder:false});
+assert.equal(parseDDT(panzeri.replace('Vs. Ord.2026356297 del 06/11/2026 - ','')).order,'');
+assert.equal(parseDDT(panzeri.replace('Vs. Ord.2026356297','Vs Ord 356297')).order,'356297');
+assert.equal(parseDDT(panzeri.replace('Numero B07759 Del 17/11/2026','Numero Del\nB07759 17/11/2026')).ddt,'B07759');
+assert.equal(parseDDT(panzeri.replace('Numero B07759 Del 17/11/2026','Numero Del\nB07759 17/11/2026')).date,'17/11/2026');
+assert.equal(parseDDT(panzeri+'\nVs. Ord.2026356280').order,'');
+assert.equal(parseDDT(paredes.replace('Ordine A 2026337695','Ordine 2026337695')).order,'A2026337695');
+const ctx={console};vm.createContext(ctx);vm.runInContext(fs.readFileSync('gas/LetturaDDTOraria.gs','utf8'),ctx);assert.equal(ctx.ddtHourlyParse_(panzeri).order,'A2026356297');assert.equal(ctx.ddtHourlyParse_(paredes).date,'26/10/2026');
+vm.runInContext(fs.readFileSync('orders-core-v12.js','utf8'),ctx);assert.equal(ctx.OrdersCore.company('Paredes Italia S.p.A.'),'PAREDES');
+const order={number:'A2026337695',company:'PAREDES ITALIA SPA',cdc:'N110'};assert.equal(ctx.OrdersCore.candidates(parseDDT(paredes),[order]).length,1);
+const porder={number:'A2026356297',company:'PANZERI SRL',cdc:'N153'};assert.equal(ctx.OrdersCore.candidates(parseDDT(panzeri),[porder]).length,1);
+console.log('PASS: both examples, no-A order, supplier internal reference rejected, six-digit reference preserved, column layout, conflicting references, legal date ignored, hourly parser, supplier aliases and order matching.');

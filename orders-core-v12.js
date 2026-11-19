@@ -2,7 +2,7 @@
 var OrdersCore=(()=>{
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
  function orderRef(value){const raw=norm(value).replace(/[\/\s-]/g,'');let m=raw.match(/^A?(20\d{2})(\d{6})$/);if(m)return {full:'A'+m[1]+m[2],suffix:m[2],year:m[1]};if(/^\d{6}$/.test(raw))return {full:'',suffix:raw,year:''};return null;}
- const company=value=>norm(value).replace(/[^A-Z0-9]/g,'').replace(/(?:SRL|SPA)$/,'');
+ const company=value=>norm(value).replace(/[^A-Z0-9]/g,'').replace(/(?:SRL|SPA)$/,'').replace(/^PAREDESITALIA$/,'PAREDES');
  const ddtKey=r=>JSON.stringify([String(r.name||''),norm(r.company),norm(r.ddt),norm(r.date),norm(r.cdc)]);
  function candidates(ddt,orders){
  const ref=orderRef(ddt.order);if(!ref)return [];
