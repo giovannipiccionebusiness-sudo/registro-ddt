@@ -63,6 +63,7 @@ function parseDDT(text){
   ['ECOSI',/\bE['’]?\s*COSI\b/],['ALL SERVICE SRL',/\bALL\s+SERVICE\b/],
   ['TOP STORE',/\bTOP\s+STORE\b/],['LA CASALINDA',/\bLA\s+CASALINDA\b/],
   ['PAREDES',/\bPAREDES\b/],['PANZERI',/\bPANZERI\b/],
+  ['ERREBIAN',/\bERREBIAN\b|\bERREBIAN\s*\.\s*IT\b/],
   ['MAGRIS',/\bMAGRIS\b|\bMAGRISGROUP\s*\.\s*COM\b/]
  ];
  const company=suppliers.find(([,pattern])=>pattern.test(flat))?.[0]||'';
@@ -80,8 +81,24 @@ function parseDDT(text){
   }
  }
  const paredesPair=paredesPairs.size===1?[...paredesPairs.values()][0]:null;
+ // Errebian prints its document reference and date together under NUMERO E DATA.
+ const errebianPairs=new Map();
+ if(company==='ERREBIAN'){
+  const areas=[...folded.matchAll(/\bNUMERO\s+E\s+DATA\b/g)].map(label=>folded.slice(Math.max(0,label.index-100),label.index+320));
+  if(!areas.length)areas.push(header);
+  for(const area of areas){
+   for(const m of area.matchAll(/\b(V\s*[1I]\s*\/\s*\d{5,8})\s*[|:]?\s*(?:DEL\s*)?(\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*(?:\d{4}|\d{2}))(?!\d)/g)){
+    const number=m[1].replace(/\s+/g,'').replace(/^VI\//,'V1/'),date=validDate(m[2]);
+    errebianPairs.set(number+'|'+date,{number,date});
+   }
+  }
+ }
+ const errebianPair=errebianPairs.size===1?[...errebianPairs.values()][0]:null;
  let ddt='';
  switch(company){
+  case 'ERREBIAN':
+   ddt=errebianPair?.number||'';
+   break;
   case 'PAREDES':
    ddt=paredesPairs.size>1?'':paredesPair?.number||pick(/\bBOLLA\s*[:#.-]?\s*([A-Z]{1,3}\s*\/\s*\d{1,3}\s*\/\s*\d{3,10})\b/);
    break;
@@ -147,11 +164,11 @@ function parseDDT(text){
    .map(match=>match[1].replace(/\s+/g,'')):[];
  const ddtDates=[...new Set(ddtDateRows)];
  const ecosiRowDate=ddtDates.length===1?ddtDates[0]:'';
- const supplierDate=company==='PAREDES'
+ const supplierDate=company==='ERREBIAN'?errebianPair?.date||'':company==='PAREDES'
   ?paredesPair?.date||pick(new RegExp('\\bBOLLA\\s*[:#.-]?\\s*[A-Z]{1,3}\\s*/\\s*\\d{1,3}\\s*/\\s*\\d{3,10}\\s+DEL\\s*'+datePattern))
   :company==='PANZERI'?pick(new RegExp('DOCUMENTO\\s+DI\\s+TRASPORTO[\\s\\S]{0,160}?\\b(?:NUMERO\\s*)?(?:DEL\\s*)?[A-Z]{0,3}\\s*\\d{3,10}\\s+(?:DEL\\s*)?'+datePattern)):'';
- const sourceDate=company==='PAREDES'?supplierDate:(supplierDate||ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate);
- const date=sourceDate?validDate(sourceDate):(!['ECOSI','PAREDES'].includes(company)&&dates.length===1?dates[0]:'');
+ const sourceDate=['PAREDES','ERREBIAN'].includes(company)?supplierDate:(supplierDate||ecosiRowDate||ecosiDate||ecosiColumnDate||labelledDate||documentDate);
+ const date=sourceDate?validDate(sourceDate):(!['ECOSI','PAREDES','ERREBIAN'].includes(company)&&dates.length===1?dates[0]:'');
  const labels=/\b(?:RIF\.?\s*(?:V\.?S\.?\s*)?ORDINE(?:\s+CLIENTE)?|V\.?S\.?\s*RIFERIMENTO|(?:NUM\.?\s+)?ORDINE\s+DUSSMANN|NUM\.?\s+ORDINE|ORD\.\s*(?=A\b|A\d))/g;
  const orderNumbers=new Set();
  for(const label of folded.matchAll(labels)){
@@ -199,6 +216,10 @@ function parseDDT(text){
   for(const m of folded.matchAll(/\bV\.?S\.?\s*\.?\s*ORD(?:INE)?\.?\s*[:#.-]?\s*(A?\s*20\d{2}\s*[/.-]?\s*\d{6}|A?\s*\d{6})(?!\d)/g)){
    const digits=m[1].replace(/\D/g,'');orderNumbers.add(digits.length===10?'A'+digits:digits);
   }
+ }
+ if(company==='ERREBIAN'){
+  // Customer reference only: not N. ORD., RIFERIMENTO MAG. or RIF. ORD WEB.
+  for(const m of folded.matchAll(/\bORDINE\s+CLIENTE\s*[:#.-]?\s*(?:A\s*[/.-]?\s*)?(20\d{2})\s*[/.-]?\s*(\d{6})(?![A-Z0-9])/g))orderNumbers.add('A'+m[1]+m[2]);
  }
  if(company==='PAREDES'){
   for(const m of folded.matchAll(/\bORDINE\s*[:#.-]?\s*A?\s*(20\d{2})\s*[/.-]?\s*(\d{6})\b/g))orderNumbers.add('A'+m[1]+m[2]);
@@ -257,7 +278,7 @@ function ddtFutureYear(value,key){
 
 async function readFocusedDDTFields(file,fields,known={}){
  const needsDate=fields.company==='ECOSI'&&!fields.date;
- const needsOrder=['CLINTEX','ALL SERVICE SRL','PANZERI','PAREDES'].includes(fields.company)&&!fields.order;
+ const needsOrder=['CLINTEX','ALL SERVICE SRL','PANZERI','PAREDES','ERREBIAN'].includes(fields.company)&&!fields.order;
  const needsOrderYear=fields.company==='MAGRIS'&&ddtFutureYear(fields.order,'order');
  const needsDateYear=fields.company==='MAGRIS'&&ddtFutureYear(fields.date,'date');
  const needsMagris=fields.company==='MAGRIS'&&(!fields.ddt||!fields.order||ddtFutureYear(fields.order,'order')||ddtFutureYear(fields.date,'date'));
