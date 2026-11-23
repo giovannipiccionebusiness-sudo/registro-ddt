@@ -116,19 +116,21 @@ function importaOrdiniEmail(){
  const label=GmailApp.getUserLabelByName('Ordini Dussmann/Acquisiti')||GmailApp.createLabel('Ordini Dussmann/Acquisiti');
  let imported=0,errors=0,completedThreads=0,stopped=false;
  outer:for(const thread of threads){
- let threadOK=true;
+ let threadOK=true,hasPDF=false;
  for(const message of thread.getMessages()){
- if(!/\bA\s*[/ ]?\s*20\d{2}\s*[/ ]?\s*\d{6}\b/i.test(message.getSubject()))continue;
+ // Il numero ordine viene letto dal PDF, anche con oggetto incompleto.
  const attachments=message.getAttachments({includeInlineImages:false,includeAttachments:true});
  for(let index=0;index<attachments.length;index++){
  if(Date.now()-start>230000){stopped=true;break outer;}
  const attachment=attachments[index];if(!/\.pdf$/i.test(attachment.getName())&&attachment.getContentType()!=='application/pdf')continue;
- const hash=ordiniDigest_(attachment.getBytes()),key=message.getId()+':'+index+':'+hash;if(done.has(key))continue;
+ hasPDF=true;
+ const hash=ordiniDigest_(attachment.getBytes()),key=message.getId()+':'+index+':'+hash;if(done.has(key)&&hashes.has(hash))continue;
  const now=Utilities.formatDate(new Date(),'Europe/Rome','yyyy-MM-dd HH:mm:ss');
  try{
  if(attachment.getBytes().length>8388608)throw new Error('Allegato oltre 8 MB: acquisizione manuale richiesta.');
  if(hashes.has(hash)){ordiniLog_(log,[key,now,message.getId(),attachment.getName(),'GIA PRESENTE','PDF identico già registrato']);done.add(key);continue;}
- let fields;try{fields=OrdersCore.parsePDF(ordiniText_(attachment),message.getSubject(),sites);}catch(error){fields={number:'',company:'',site:'',cdc:'',date:'',due:'',address:'',warnings:'Lettura PDF non riuscita: '+error.message};}
+ const fields=OrdersCore.parsePDF(ordiniText_(attachment),message.getSubject(),sites);
+ if(!fields.number)throw new Error('Numero ordine non letto nel PDF: importazione da riprovare o verificare manualmente.');
  if(fields.number&&previous.some(r=>r[1]===fields.number&&r[12]!==hash))fields.warnings=[fields.warnings,'Possibile revisione di un ordine esistente: verificare'].filter(Boolean).join('; ');
  const file=ordiniArchive_(root,fields,hash,attachment),row=[Utilities.getUuid(),fields.number,fields.company,fields.site,fields.cdc,fields.date,fields.due,'APERTO',file.getId(),file.getUrl(),file.getName(),message.getId(),hash,now,fields.warnings,'',now,fields.address];
  // RAW string values prevent supplier text beginning with '=' from becoming formulas.
@@ -138,7 +140,9 @@ function importaOrdiniEmail(){
  }catch(error){threadOK=false;errors++;ordiniLog_(log,[key,now,message.getId(),attachment.getName(),'ERRORE',String(error.message).slice(0,1000)]);}
  }
  }
- if(threadOK)thread.addLabel(label);completedThreads++;
+ if(threadOK&&hasPDF)thread.addLabel(label);
+ else thread.removeLabel(label);
+ completedThreads++;
  }
  props.setProperty('ordini_cursor',threads.length<30&&!stopped?'0':String(offset+completedThreads));
  ordiniSetConfig_(ss,'Ultimo controllo',Utilities.formatDate(new Date(),'Europe/Rome','yyyy-MM-dd HH:mm:ss'));
